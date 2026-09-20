@@ -14,7 +14,7 @@ import (
 	"strings"
 	"time"
 	"tuya-ipc-terminal/pkg/core"
-	"tuya-ipc-terminal/pkg/storage"
+	
 	"tuya-ipc-terminal/pkg/tuya"
 
 	"github.com/pion/rtp"
@@ -287,7 +287,7 @@ func (s *RTSPServer) handleOptions(client *RTSPClient, request *RTSPRequest) {
 
 func (s *RTSPServer) handleDescribe(client *RTSPClient, request *RTSPRequest) {
 	// Generate SDP for the camera stream
-	sdp := s.generateSDP(client.stream.camera, request.URL)
+	sdp := s.generateSDP(client, request.URL)
 
 	headers := map[string]string{
 		"CSeq":          strconv.Itoa(request.CSeq),
@@ -513,7 +513,8 @@ func (s *RTSPServer) handleUnsupportedMethod(client *RTSPClient, request *RTSPRe
 	sendRTSPResponse(client.conn, 501, "Not Implemented", headers, "")
 }
 
-func (s *RTSPServer) generateSDP(camera *storage.CameraInfo, baseURL string) string {
+func (s *RTSPServer) generateSDP(client *RTSPClient, baseURL string) string {
+	camera := client.stream.camera
 	sdp := "v=0\r\n"
 	sdp += fmt.Sprintf("o=- %d %d IN IP4 0.0.0.0\r\n", time.Now().Unix(), time.Now().Unix())
 	sdp += "s=Tuya Camera Stream\r\n"
@@ -534,8 +535,12 @@ func (s *RTSPServer) generateSDP(camera *storage.CameraInfo, baseURL string) str
 
 	// Video media description based on skill
 	if skill != nil && len(skill.Videos) > 0 {
-		// HD (main) as default
-		streamType := tuya.GetStreamType(skill, "hd")
+		// Use the resolution actually requested by the client (sd/hd), not always hd
+		resolution := "hd"
+		if client.stream != nil && client.stream.resolution != "" {
+			resolution = client.stream.resolution
+		}
+		streamType := tuya.GetStreamType(skill, resolution)
 		isHEVC := tuya.IsHEVC(skill, streamType)
 
 		var videoInfo *tuya.VideoSkill

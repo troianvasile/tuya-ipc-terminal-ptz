@@ -274,7 +274,7 @@ func (rf *RTPForwarder) ForwardVideoPacket(packet *rtp.Packet) {
 		return
 	}
 
-	// Forward to all clients
+	// Forward to all clients; drop dead clients on write error
 	for sessionID, client := range rf.clients {
 		client.lastActivity = time.Now()
 
@@ -282,20 +282,14 @@ func (rf *RTPForwarder) ForwardVideoPacket(packet *rtp.Packet) {
 			if client.videoConn != nil {
 				if _, err := client.videoConn.Write(data); err != nil {
 					core.Logger.Error().Err(err).Msgf("Error forwarding video packet to UDP client %s", sessionID)
-				} else if rf.firstVideoPacket {
-					rf.firstVideoPacket = false
-					core.Logger.Trace().Msgf("Successfully sent first video packet to UDP client %s on port %d",
-						sessionID, client.videoRTPPort)
+					delete(rf.clients, sessionID)
 				}
 			}
 		} else if client.transportMode == TransportTCP {
 			if client.tcpConn != nil {
 				if err := rf.sendInterleavedRTP(client.tcpConn, client.videoRTPChannel, data); err != nil {
 					core.Logger.Error().Err(err).Msgf("Error forwarding video packet to TCP client %s", sessionID)
-				} else if rf.firstVideoPacket {
-					rf.firstVideoPacket = false
-					core.Logger.Trace().Msgf("Successfully sent first video packet to TCP client %s on channel %d",
-						sessionID, client.videoRTPChannel)
+					delete(rf.clients, sessionID)
 				}
 			}
 		}
@@ -317,7 +311,7 @@ func (rf *RTPForwarder) ForwardAudioPacket(packet *rtp.Packet) {
 		return
 	}
 
-	// Forward to all clients
+	// Forward to all clients; drop dead clients on write error
 	for sessionID, client := range rf.clients {
 		client.lastActivity = time.Now()
 
@@ -325,20 +319,14 @@ func (rf *RTPForwarder) ForwardAudioPacket(packet *rtp.Packet) {
 			if client.audioConn != nil {
 				if _, err := client.audioConn.Write(data); err != nil {
 					core.Logger.Error().Err(err).Msgf("Error forwarding audio packet to UDP client %s", sessionID)
-				} else if rf.firstAudioPacket {
-					rf.firstAudioPacket = false
-					core.Logger.Trace().Msgf("Successfully sent first audio packet to UDP client %s on port %d",
-						sessionID, client.audioRTPPort)
+					delete(rf.clients, sessionID)
 				}
 			}
 		} else if client.transportMode == TransportTCP {
 			if client.tcpConn != nil {
 				if err := rf.sendInterleavedRTP(client.tcpConn, client.audioRTPChannel, data); err != nil {
 					core.Logger.Error().Err(err).Msgf("Error forwarding audio packet to TCP client %s", sessionID)
-				} else if rf.firstAudioPacket {
-					rf.firstAudioPacket = false
-					core.Logger.Trace().Msgf("Successfully sent first audio packet to TCP client %s on channel %d",
-						sessionID, client.audioRTPChannel)
+					delete(rf.clients, sessionID)
 				}
 			}
 		}

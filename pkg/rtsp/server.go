@@ -53,6 +53,7 @@ type CameraStream struct {
 	camera       *storage.CameraInfo
 	resolution   string
 	user         *storage.UserSession
+	streamStorageManager *storage.StorageManager
 	webrtcBridge *WebRTCBridge
 	clients      map[string]*RTSPClient
 	mutex        sync.RWMutex
@@ -457,6 +458,7 @@ func NewCameraStream(camera *storage.CameraInfo, resolution string, user *storag
 	}
 
 	stream.webrtcBridge = NewWebRTCBridge(camera, resolution, user, storageManager)
+	stream.streamStorageManager = storageManager
 
 	return stream
 }
@@ -517,22 +519,28 @@ func (cs *CameraStream) Stop() {
 
 func (cs *CameraStream) startStream() {
 	cs.mutex.Lock()
-	defer cs.mutex.Unlock()
 
 	if cs.active {
+		cs.mutex.Unlock()
 		return
 	}
 
 	core.Logger.Info().Msgf("Starting stream for camera: %s", cs.camera.DeviceName)
+	bridge := cs.webrtcBridge
+	cs.mutex.Unlock()
 
-	if err := cs.webrtcBridge.Start(); err != nil {
+	// Bridge start performs blocking WebRTC negotiation - never hold
+	// cs.mutex here or RemoveClient/shutdown will deadlock.
+	if err := bridge.Start(); err != nil {
 		core.Logger.Error().Err(err).Msg("Failed to start WebRTC bridge")
-		cs.stopStreamInternal()
+		cs.stopStream()
 		return
 	}
 
+	cs.mutex.Lock()
 	cs.connecting = false
 	cs.active = true
+	cs.mutex.Unlock()
 }
 
 func (cs *CameraStream) stopStream() {
@@ -565,6 +573,9 @@ func (cs *CameraStream) stopStreamInternal() {
 	// Stop WebRTC bridge
 	if cs.webrtcBridge != nil {
 		cs.webrtcBridge.Stop()
+		// Recreate a fresh bridge so the next client gets a clean
+		// WebRTC session instead of reusing the dead one.
+		cs.webrtcBridge = NewWebRTCBridge(cs.camera, cs.resolution, cs.user, cs.streamStorageManager)
 	}
 
 	// Remove from server map in a separate goroutine to avoid potential deadlock
@@ -590,14 +601,21 @@ func (cs *CameraStream) scheduleShutdown() {
 
 	cs.shutdownTimer = time.AfterFunc(cs.shutdownDelay, func() {
 		cs.mutex.Lock()
-		defer cs.mutex.Unlock()
+		shouldStop := len(cs.clients) == 0 && cs.active
+		if shouldStop {
+			// Mark inactive while holding the lock, but release before
+			// stopping the bridge to avoid holding cs.mutex during
+			// potentially long WebRTC teardown (deadlock with track
+			// goroutines that call back into the stream).
+			cs.active = false
+			cs.connecting = false
+		}
+		cs.shutdownTimer = nil
+		cs.mutex.Unlock()
 
-		// Double-check no clients connected during the delay and stream is still active
-		if len(cs.clients) == 0 && cs.active {
+		if shouldStop {
 			core.Logger.Info().Msgf("Executing delayed shutdown for camera %s", cs.camera.DeviceName)
 			cs.stopStreamInternal()
 		}
-
-		cs.shutdownTimer = nil
 	})
 }
