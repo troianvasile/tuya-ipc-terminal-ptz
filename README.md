@@ -1,8 +1,22 @@
-# Tuya IPC Terminal
+# Tuya IPC Terminal (fixed fork)
+
+> **This is a fixed fork** of [seydx/tuya-ipc-terminal](https://github.com/seydx/tuya-ipc-terminal) (MIT).
+> Upstream has been inactive for over a year, so fixes live here.
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Go Version](https://img.shields.io/badge/Go-1.21%2B-blue.svg)](https://golang.org/)
 [![Build Status](https://img.shields.io/badge/Build-Passing-brightgreen.svg)]()
+
+## Fixes in this fork
+
+| # | Bug | Symptom | Fix |
+|---|-----|---------|-----|
+| 1 | `generateSDP` hardcoded HD stream info | Requesting `/sd` returned an SDP advertising HEVC while the bridge forwarded H264 → every client failed to decode | SDP now reflects the resolution actually requested (`pkg/rtsp/protocol.go`) |
+| 2 | `startStream` held the stream mutex during blocking WebRTC negotiation | First connection worked, **every reconnect hung forever** (deadlock with `RemoveClient`) | Lock released before `bridge.Start()` (`pkg/rtsp/server.go`) |
+| 3 | Delayed-shutdown callback ran WebRTC teardown under the stream mutex | Deadlock with track goroutines; stream never shut down, dead WebRTC bridge reused | State flipped under lock, teardown after unlock; fresh bridge created per session |
+| 4 | Broken-pipe TCP clients never removed from forwarder | Endless `write: broken pipe` spam, stale sessions | Dead clients deleted on write error (`pkg/rtsp/forwarder.go`) |
+
+Verified against Tuya cameras (H264 SD stream 640x360): 5/5 consecutive snapshot pulls succeed where upstream only ever worked on the first connection.
 
 A powerful CLI tool to connect Tuya Smart Cameras to RTSP clients through reverse-engineered Tuya browser client APIs. Stream your Tuya cameras directly to any RTSP-compatible media player or home automation system.
 
