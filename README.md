@@ -10,6 +10,17 @@ An independently maintained derivative of Tuya IPC Terminal that adds camera pan
 
 The original MIT license and prior authors' notices are retained in `LICENSE` and Git history. This project is not an official Tuya or Little Elf product.
 
+## Quick start (EU endpoint tested)
+
+```bash
+git clone https://github.com/troianvasile/tuya-ipc-terminal-ptz.git
+cd tuya-ipc-terminal-ptz
+./build.sh
+./tuya-ipc-terminal auth add eu-central your-email@example.com --password
+./tuya-ipc-terminal cameras refresh
+./tuya-ipc-terminal cameras list
+```
+
 ## PTZ commands
 
 After authenticating and discovering cameras as described below:
@@ -20,11 +31,14 @@ After authenticating and discovering cameras as described below:
 ./tuya-ipc-terminal ptz stop --camera Living
 ```
 
-PTZ was physically verified on two Little Elf cameras using the EU web endpoint. Other regions and camera models have not been validated. STOP is attempted after each timed movement but cannot be guaranteed if the network or process fails; keep the camera's travel path clear. The REST helper used in one private Home Assistant deployment is **not included** in this repository.
+PTZ was physically verified on two Little Elf cameras using the EU web endpoint. Other regions and camera models have not been validated. STOP is attempted after each timed movement. STOP errors cause a nonzero CLI exit code, but stopping cannot be guaranteed if the network or process fails; keep the camera's travel path clear. The REST helper used in one private Home Assistant deployment is **not included** in this repository.
 
 ## Security and limitations
 
 - Never commit `.tuya-data`, saved authentication cookies, user credentials, tokens, or built binaries.
+- PTZ currently supports only `protect-eu.ismartlife.me` (EU), by design; other regions need separate validation.
+- PTZ supports duration from 100ms to 1500ms. Use short movements and verify motor response.
+- A nonzero PTZ CLI exit status indicates START/STOP failure; do not assume that a failed STOP leaves the camera stationary.
 - The web PTZ endpoints are reverse-engineered and may change without notice.
 - Test each camera and direction at a short duration before routine use.
 - Streaming and PTZ both depend on the vendor web service and working authentication.
@@ -33,14 +47,13 @@ PTZ was physically verified on two Little Elf cameras using the EU web endpoint.
 
 ## Background: fixed fork documentation
 
-# Tuya IPC Terminal (fixed fork)
+## Tuya IPC Terminal (fixed fork background)
 
 > **This is a fixed fork** of [seydx/tuya-ipc-terminal](https://github.com/seydx/tuya-ipc-terminal) (MIT).
 > Upstream has been inactive for over a year, so fixes live here.
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Go Version](https://img.shields.io/badge/Go-1.21%2B-blue.svg)](https://golang.org/)
-[![Build Status](https://img.shields.io/badge/Build-Passing-brightgreen.svg)]()
 
 ## Fixes in this fork
 
@@ -73,8 +86,8 @@ A powerful CLI tool to connect Tuya Smart Cameras to RTSP clients through revers
 ### Installation
 
 ```bash
-git clone <repository-url>
-cd tuya-ipc-terminal
+git clone https://github.com/troianvasile/tuya-ipc-terminal-ptz.git
+cd tuya-ipc-terminal-ptz
 chmod +x build.sh
 ./build.sh
 ```
@@ -375,8 +388,8 @@ ffplay rtsp://localhost:8554/CameraName/sd
 ### Development Setup
 
 ```bash
-git clone <repository-url>
-cd tuya-ipc-terminal
+git clone https://github.com/troianvasile/tuya-ipc-terminal-ptz.git
+cd tuya-ipc-terminal-ptz
 go mod download
 go run main.go --help
 ```

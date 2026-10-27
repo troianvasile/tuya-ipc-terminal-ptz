@@ -34,17 +34,9 @@ func NewPTZCmd() *cobra.Command {
 		if err != nil {
 			return err
 		}
-		// Always attempt STOP even if START fails. Cloud failure can still prevent STOP.
-		defer func() {
-			if e := tuya.SendPTZ(client, host, id, "", true); e != nil {
-				fmt.Fprintf(cmd.ErrOrStderr(), "WARNING: PTZ stop failed: %v\n", e)
-			}
-		}()
-		if err := tuya.SendPTZ(client, host, id, direction, false); err != nil {
-			return err
-		}
-		time.Sleep(duration)
-		return nil
+		return runBoundedMove(func(stop bool) error {
+			return tuya.SendPTZ(client, host, id, direction, stop)
+		}, duration, time.Sleep)
 	}}
 	move.Flags().StringVar(&device, "camera", "", "Camera name or device ID (required)")
 	move.Flags().StringVar(&direction, "direction", "", "UP, DOWN, LEFT, RIGHT (or diagonal)")
@@ -118,4 +110,19 @@ func getClient(name string) (*http.Client, string, string, error) {
 		return client, session.ServerHost, selected.DeviceID, nil
 	}
 	return nil, "", "", fmt.Errorf("no saved account session for camera %q", name)
+}
+
+// runBoundedMove attempts STOP even after a rejected START. A STOP failure
+// must be observable by scripts and Home Assistant via a nonzero exit code.
+func runBoundedMove(send func(stop bool) error, duration time.Duration, sleep func(time.Duration)) (err error) {
+	defer func() {
+		if stopErr := send(true); stopErr != nil {
+			err = errors.Join(err, fmt.Errorf("PTZ stop failed: %w", stopErr))
+		}
+	}()
+	if err = send(false); err != nil {
+		return fmt.Errorf("PTZ start failed: %w", err)
+	}
+	sleep(duration)
+	return nil
 }
