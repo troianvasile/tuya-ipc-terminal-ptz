@@ -54,6 +54,7 @@ type WebRTCBridge struct {
 	videoTrack  *pion.TrackRemote
 	audioTrack  *pion.TrackRemote
 	backchannel *pion.TrackLocalStaticRTP
+	talkback talkbackController
 
 	// Callbacks
 	OnVideoPacket func(packet *rtp.Packet)
@@ -180,9 +181,14 @@ func (wb *WebRTCBridge) Stop() {
 	// Cancel context to stop all goroutines
 	wb.cancel()
 
-	// Send disconnect
+	// Disable speaker before disconnecting (only if talkback enabled it).
 	if wb.cameraClient != nil {
+		if err := wb.talkback.close(wb.cameraClient.SendSpeaker); err != nil {
+			core.Logger.Warn().Err(err).Msg("Talkback: failed to disable camera speaker")
+		}
 		wb.cameraClient.SendDisconnect()
+	} else {
+		_ = wb.talkback.close(func(int) error { return nil })
 	}
 
 	// Close peer connection
@@ -210,8 +216,13 @@ func (wb *WebRTCBridge) IsConnected() bool {
 }
 
 func (wb *WebRTCBridge) ForwardBackchannelAudioPacket(packet *rtp.Packet) {
-	if wb.backchannel != nil {
-		_ = wb.backchannel.WriteRTP(packet)
+	if packet == nil || wb.backchannel == nil || wb.cameraClient == nil {
+		return
+	}
+	if err := wb.talkback.forward(wb.cameraClient.SendSpeaker, func() error {
+		return wb.backchannel.WriteRTP(packet)
+	}); err != nil {
+		core.Logger.Warn().Err(err).Msg("Talkback: audio packet not forwarded")
 	}
 }
 
