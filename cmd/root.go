@@ -6,6 +6,7 @@ import (
 
 	"tuya-ipc-terminal/cmd/auth"
 	"tuya-ipc-terminal/cmd/cameras"
+	"tuya-ipc-terminal/cmd/ptz"
 	"tuya-ipc-terminal/cmd/rtsp"
 	"tuya-ipc-terminal/pkg/storage"
 
@@ -45,6 +46,7 @@ func init() {
 	rootCmd.AddCommand(auth.NewAuthCmd())
 	rootCmd.AddCommand(cameras.NewCamerasCmd())
 	rootCmd.AddCommand(rtsp.NewRTSPCmd())
+	rootCmd.AddCommand(ptz.NewPTZCmd())
 }
 
 func initConfig() {
@@ -59,6 +61,7 @@ func initConfig() {
 	auth.SetStorageManager(storageManager)
 	cameras.SetStorageManager(storageManager)
 	rtsp.SetStorageManager(storageManager)
+	ptz.SetStorageManager(storageManager)
 }
 
 func GetStorageManager() *storage.StorageManager {
