@@ -127,33 +127,35 @@ func (s *RTSPServer) Start() error {
 
 func (s *RTSPServer) Stop() error {
 	s.mutex.Lock()
-	defer s.mutex.Unlock()
-
 	if !s.running {
+		s.mutex.Unlock()
 		return errors.New("server is not running")
 	}
 
 	core.Logger.Info().Msg("Stopping RTSP server...")
-
-	// Cancel context to stop all goroutines
 	s.running = false
 	s.cancel()
-
-	// Close listener
-	if s.listener != nil {
-		s.listener.Close()
-	}
-
-	// Close all client connections
+	listener := s.listener
+	clients := make([]*RTSPClient, 0, len(s.clients))
 	for _, client := range s.clients {
-		client.conn.Close()
+		clients = append(clients, client)
 	}
-
-	// Stop all streams
+	streams := make([]*CameraStream, 0, len(s.streams))
 	for _, stream := range s.streams {
+		streams = append(streams, stream)
+	}
+	s.mutex.Unlock()
+
+	// Never hold the server mutex during network I/O or WebRTC teardown.
+	if listener != nil {
+		_ = listener.Close()
+	}
+	for _, client := range clients {
+		_ = client.conn.Close()
+	}
+	for _, stream := range streams {
 		stream.Stop()
 	}
-
 	return nil
 }
 
@@ -373,16 +375,17 @@ func (s *RTSPServer) addClient(client *RTSPClient) {
 
 func (s *RTSPServer) removeClient(sessionID string) {
 	s.mutex.Lock()
-	defer s.mutex.Unlock()
+	client := s.clients[sessionID]
+	delete(s.clients, sessionID)
+	s.mutex.Unlock()
 
-	if client, exists := s.clients[sessionID]; exists {
-		// Remove client from stream
+	// RemoveClient may acquire forwarder locks and schedule bridge teardown.
+	// Do not block the global server mutex while cleaning up a connection.
+	if client != nil {
+		_ = client.conn.Close()
 		if client.stream != nil {
 			client.stream.RemoveClient(sessionID)
 		}
-
-		client.conn.Close()
-		delete(s.clients, sessionID)
 	}
 }
 
@@ -430,16 +433,40 @@ func (s *RTSPServer) cleanupRoutine() {
 }
 
 func (s *RTSPServer) cleanupInactiveStreams() {
-	s.mutex.Lock()
-	defer s.mutex.Unlock()
+	// Snapshot under the server lock, inspect stream state under its own lock,
+	// then stop selected streams without holding either map lock.
+	s.mutex.RLock()
+	streams := make([]*CameraStream, 0, len(s.streams))
+	for _, stream := range s.streams {
+		streams = append(streams, stream)
+	}
+	s.mutex.RUnlock()
 
 	now := time.Now()
-	for deviceID, stream := range s.streams {
-		// Remove streams inactive for more than 5 minutes
-		if now.Sub(stream.lastActivity) > 5*time.Minute && len(stream.clients) == 0 {
+	for _, stream := range streams {
+		stream.mutex.Lock()
+		inactive := now.Sub(stream.lastActivity) > 5*time.Minute && len(stream.clients) == 0
+		stream.mutex.Unlock()
+		if !inactive {
+			continue
+		}
+		// A reconnect can race with cleanup: verify that this is still
+		// the registered instance and idle before removing it.
+		s.mutex.Lock()
+		if s.streams[stream.streamId] != stream {
+			s.mutex.Unlock()
+			continue
+		}
+		stream.mutex.Lock()
+		inactive = time.Since(stream.lastActivity) > 5*time.Minute && len(stream.clients) == 0
+		if inactive {
+			delete(s.streams, stream.streamId)
+		}
+		stream.mutex.Unlock()
+		s.mutex.Unlock()
+		if inactive {
 			core.Logger.Trace().Msgf("Cleaning up inactive stream for camera: %s", stream.camera.DeviceName)
 			stream.Stop()
-			delete(s.streams, deviceID)
 		}
 	}
 }
