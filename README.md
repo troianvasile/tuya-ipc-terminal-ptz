@@ -1,3 +1,38 @@
+# Tuya IPC Terminal + PTZ
+
+An independently maintained derivative of Tuya IPC Terminal that adds camera pan/tilt control using the authenticated Little Elf / Tuya IPC web API, while retaining the RTSP bridge and stability improvements.
+
+## Project lineage and attribution
+
+- Original project: [seydx/tuya-ipc-terminal](https://github.com/seydx/tuya-ipc-terminal) — WebRTC-to-RTSP bridge.
+- Intermediate fixed fork: [yangyongyongyong/tuya-ipc-terminal-fixed](https://github.com/yangyongyongyong/tuya-ipc-terminal-fixed) — SDP resolution, reconnect/deadlock and client cleanup fixes.
+- This derivative: PTZ CLI using the saved web-session cookies and `/api/jarvis/ptz/start` and `/api/jarvis/ptz/end` requests.
+
+The original MIT license and prior authors' notices are retained in `LICENSE` and Git history. This project is not an official Tuya or Little Elf product.
+
+## PTZ commands
+
+After authenticating and discovering cameras as described below:
+
+```bash
+./tuya-ipc-terminal ptz move --camera Living --direction LEFT --duration 400ms
+./tuya-ipc-terminal ptz move --camera "Baby Room" --direction RIGHT --duration 400ms
+./tuya-ipc-terminal ptz stop --camera Living
+```
+
+PTZ was physically verified on two Little Elf cameras using the EU web endpoint. Other regions and camera models have not been validated. STOP is attempted after each timed movement but cannot be guaranteed if the network or process fails; keep the camera's travel path clear. The REST helper used in one private Home Assistant deployment is **not included** in this repository.
+
+## Security and limitations
+
+- Never commit `.tuya-data`, saved authentication cookies, user credentials, tokens, or built binaries.
+- The web PTZ endpoints are reverse-engineered and may change without notice.
+- Test each camera and direction at a short duration before routine use.
+- Streaming and PTZ both depend on the vendor web service and working authentication.
+
+---
+
+## Background: fixed fork documentation
+
 # Tuya IPC Terminal (fixed fork)
 
 > **This is a fixed fork** of [seydx/tuya-ipc-terminal](https://github.com/seydx/tuya-ipc-terminal) (MIT).

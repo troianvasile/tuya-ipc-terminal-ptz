@@ -2,4 +2,8 @@ tuya_session_*
 .tuya_*
 .tuya-*
 .tmp
-tuya-ipc-terminal
+tuya-ipc-terminal/.tuya-data/
+/tuya-ipc-terminal
+/tuya-ipc-terminal-ptz
+*.log
+*.env
