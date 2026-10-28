@@ -6,9 +6,11 @@ An independently maintained derivative of Tuya IPC Terminal that adds camera pan
 
 The Go RTSP bridge includes working audio backchannel fixes on branch `fix/ptt-rearm-sd-lifecycle` (tested with two Little Elf cameras, 2026-10-28), including SD handshake, speaker rearm, RTP continuity and idle bridge cleanup.
 
-**The full Home Assistant PTT stack is not yet shipped in this repository.** The tested `custom_components/little_elf_talk` backend, `little-elf-ptt-card.js` and the optional Home Assistant PTZ REST helper remain external/private. Installing just this Go project and a standard RTSP camera will **not** give you the same browser push-to-talk experience. PTZ CLI is currently verified and restricted to the Tuya EU server. TTS audio injection is not verified.
+**Portable preview added on this branch:** [`homeassistant/README.md`](homeassistant/README.md) provides a new YAML-configured HA WebSocket PTT integration, browser AudioWorklet microphone card, backup-first installer, example camera configuration and an automated RTSP wire-protocol test. This is **new code, not a copy of the user's working HA private backend**, and is not yet validated on a fresh HA deployment. It must be tested before offering a release.
 
-See **[Portable Home Assistant setup, examples and remaining tasks](docs/PORTABLE_HOME_ASSISTANT_SETUP.md)**. Do not advertise general Tuya camera/model compatibility without independent tests.
+Go PTZ supports all six authenticated Tuya web region hosts via an exact allowlist, but physical PTZ validation is still limited to two EU cameras. The **optional HA PTZ REST helper remains unpublished**. File/TTS injection is not supported.
+
+See also [`docs/PORTABLE_HOME_ASSISTANT_SETUP.md`](docs/PORTABLE_HOME_ASSISTANT_SETUP.md). Do not advertise universal Tuya camera/model or codec compatibility without tests.
 
 ## Project lineage and attribution
 
