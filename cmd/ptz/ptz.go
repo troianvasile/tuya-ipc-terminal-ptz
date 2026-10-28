@@ -96,7 +96,7 @@ func getClient(name string) (*http.Client, string, string, error) {
 			continue
 		}
 		session := u.SessionData
-		if session.ServerHost != "protect-eu.ismartlife.me" {
+		if !tuya.IsAllowedPTZHost(session.ServerHost) {
 			return nil, "", "", fmt.Errorf("unexpected server host %q", session.ServerHost)
 		}
 		jar, err := cookiejar.New(&cookiejar.Options{PublicSuffixList: publicsuffix.List})
