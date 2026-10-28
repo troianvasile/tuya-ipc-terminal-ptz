@@ -356,11 +356,13 @@ func (s *RTSPServer) getOrCreateStream(camera *storage.CameraInfo, streamResolut
 	return stream, nil
 }
 
-func (s *RTSPServer) removeStream(streamId string) {
+// removeStreamIfCurrent must not delete a replacement stream that was
+// created while an older WebRTC bridge was shutting down.
+func (s *RTSPServer) removeStreamIfCurrent(streamId string, expected *CameraStream) {
 	s.mutex.Lock()
 	defer s.mutex.Unlock()
 
-	if _, exists := s.streams[streamId]; exists {
+	if s.streams[streamId] == expected {
 		delete(s.streams, streamId)
 		core.Logger.Trace().Msgf("Removed stream %s from server map", streamId)
 	}
@@ -585,41 +587,45 @@ func (cs *CameraStream) stopStreamInternal() {
 	// Remove from server map in a separate goroutine to avoid potential deadlock
 	go func() {
 		if cs.server != nil {
-			cs.server.removeStream(cs.streamId)
+			cs.server.removeStreamIfCurrent(cs.streamId, cs)
 		}
 	}()
 }
 
 func (cs *CameraStream) scheduleShutdown() {
-	// Don't schedule if we're not active
+	// Called with cs.mutex held (from RemoveClient).
 	if !cs.active {
 		return
 	}
 
-	// Cancel any existing timer
 	if cs.shutdownTimer != nil {
 		cs.shutdownTimer.Stop()
 	}
 
 	core.Logger.Trace().Msgf("Scheduling shutdown for camera %s in %v", cs.camera.DeviceName, cs.shutdownDelay)
-
 	cs.shutdownTimer = time.AfterFunc(cs.shutdownDelay, func() {
 		cs.mutex.Lock()
-		shouldStop := len(cs.clients) == 0 && cs.active
-		if shouldStop {
-			// Mark inactive while holding the lock, but release before
-			// stopping the bridge to avoid holding cs.mutex during
-			// potentially long WebRTC teardown (deadlock with track
-			// goroutines that call back into the stream).
-			cs.active = false
-			cs.connecting = false
+		if len(cs.clients) != 0 || !cs.active {
+			cs.shutdownTimer = nil
+			cs.mutex.Unlock()
+			return
 		}
+
+		// Detach the idle stream while holding its mutex, but perform
+		// network teardown outside the lock to avoid WebRTC callback deadlocks.
+		bridge := cs.webrtcBridge
+		cs.active = false
+		cs.connecting = false
+		cs.startLaunched = false
 		cs.shutdownTimer = nil
 		cs.mutex.Unlock()
 
-		if shouldStop {
-			core.Logger.Info().Msgf("Executing delayed shutdown for camera %s", cs.camera.DeviceName)
-			cs.stopStreamInternal()
+		core.Logger.Info().Msgf("Executing delayed shutdown for camera %s", cs.camera.DeviceName)
+		if bridge != nil {
+			bridge.Stop()
+		}
+		if cs.server != nil {
+			cs.server.removeStreamIfCurrent(cs.streamId, cs)
 		}
 	})
 }
