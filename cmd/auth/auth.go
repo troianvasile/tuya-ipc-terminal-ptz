@@ -537,7 +537,13 @@ func performQRAuthentication(region tuya.Region, email string) (*tuya.SessionDat
 		return nil, fmt.Errorf("error generating QR code: %v", err)
 	}
 
-	qrterminal.Generate("tuyaSmart--qrLogin?token="+qrCodeToken, qrterminal.L, os.Stdout)
+	// Expose the QR payload only to an explicitly opted-in local management process.
+	// Never enable this for routine bridge logs: the value is a short-lived login secret.
+	if os.Getenv("TUYA_QR_WEB") == "1" {
+		fmt.Println("QR_LOGIN_URL:tuyaSmart--qrLogin?token=" + qrCodeToken)
+	} else {
+		qrterminal.Generate("tuyaSmart--qrLogin?token="+qrCodeToken, qrterminal.L, os.Stdout)
+	}
 	fmt.Printf("\nPlease scan the QR code with the Tuya Smart / Smart Life app.\n")
 	fmt.Printf("Make sure to use the account with email: %s\n", email)
 	fmt.Println("\nPress Enter after scanning to continue...")
