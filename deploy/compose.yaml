@@ -1,0 +1,24 @@
+services:
+  tuya-bridge:
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile
+    restart: unless-stopped
+    init: true
+    environment:
+      RTSP_PORT: "8554"
+      WEB_PORT: "8788"
+      WEB_USERNAME: "${WEB_USERNAME:?Set WEB_USERNAME in deploy/.env}"
+      WEB_PASSWORD: "${WEB_PASSWORD:?Set WEB_PASSWORD in deploy/.env}"
+      HA_URL: "${HA_URL:-}"
+      HA_TOKEN: "${HA_TOKEN:-}"
+      SESSION_CHECK_SECONDS: "3600"
+    ports:
+      - "8554:8554/tcp"
+      - "127.0.0.1:8788:8788/tcp"
+    volumes:
+      - tuya_data:/data
+    security_opt:
+      - no-new-privileges:true
+volumes:
+  tuya_data:
