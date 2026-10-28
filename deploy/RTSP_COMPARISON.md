@@ -9,17 +9,17 @@ assessed individually rather than merging their Go source wholesale.
 | --- | --- | --- |
 | Case-insensitive camera lookup | `findCameraByRTSPPath` already uses `strings.EqualFold` | Keep and test |
 | Video RTP payload type normalization (HD/HEVC) | Current fork needs wire-level verification | Test before further change |
-| UDP RTP sent to client IP, not localhost | Current `AddUDPClient` has no client-host argument; implementation uses localhost | Port carefully with SETUP caller signature changes and tests |
+| UDP RTP sent to client IP, not localhost | `AddUDPClient` receives the RTSP peer host and reconnects when a negotiated destination changes | Unit-tested; real remote-client playback still required |
 | RTSP connection startup responsiveness | Existing asynchronous stream-start and lifecycle fixes | Regression test against slow Tuya signalling |
 | Dead TCP client cleanup | Existing RTSP backchannel/forwarder diverges substantially from YaannnTech | Port/review independently, preserve PTT |
 | Session-expiry notification | New `deploy/manage.py` provides optional HA REST notification | Add integration tests |
 
 ## Do not merge blindly
 
-The YaannnTech forwarder has an API `AddUDPClient(sessionID, clientHost,...)`
-that differs from this fork's `AddUDPClient(sessionID, videoRTPPort, audioRTPPort)`.
-Replacing entire files would risk breaking RTSP backchannel audio. Validate
-individual patches and peer interactions before porting.
+The YaannnTech fork informed the narrow `AddUDPClient(sessionID, clientHost,...)`
+signature and SETUP peer-address extraction used here. Its files were not copied
+wholesale: this fork retains its separate RTP backchannel implementation. Validate
+individual patches and peer interactions before porting further changes.
 
 The Supervisor add-on's `/app/<slug>`, `SUPERVISOR_TOKEN`, `bashio` and
 `http://supervisor` assumptions are deliberately **not used** here.

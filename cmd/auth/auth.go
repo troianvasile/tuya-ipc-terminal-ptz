@@ -555,15 +555,8 @@ func performQRAuthentication(region tuya.Region, email string) (*tuya.SessionDat
 		return nil, fmt.Errorf("error polling for login: %v", err)
 	}
 
-	if loginResult.Email != email {
-		fmt.Println("Logged in with different email than expected!")
-		fmt.Printf("Expected: %s, Got: %s\n", email, loginResult.Email)
-		fmt.Println("Continue anyway? (y/N): ")
-		var response string
-		fmt.Scanln(&response)
-		if strings.ToLower(response) != "y" && strings.ToLower(response) != "yes" {
-			return nil, fmt.Errorf("email mismatch, authentication cancelled")
-		}
+	if err := confirmQRLoginEmail(email, loginResult.Email); err != nil {
+		return nil, err
 	}
 
 	sessionData := &tuya.SessionData{
@@ -576,6 +569,26 @@ func performQRAuthentication(region tuya.Region, email string) (*tuya.SessionDat
 	}
 
 	return sessionData, nil
+}
+
+func confirmQRLoginEmail(expected, actual string) error {
+	if actual == expected {
+		return nil
+	}
+
+	if os.Getenv("TUYA_QR_WEB") == "1" {
+		return fmt.Errorf("email mismatch; scan the QR code with the selected Tuya account")
+	}
+
+	fmt.Println("Logged in with different email than expected!")
+	fmt.Printf("Expected: %s, Got: %s\n", expected, actual)
+	fmt.Println("Continue anyway? (y/N): ")
+	var response string
+	fmt.Scanln(&response)
+	if strings.ToLower(response) != "y" && strings.ToLower(response) != "yes" {
+		return fmt.Errorf("email mismatch, authentication cancelled")
+	}
+	return nil
 }
 
 func createHTTPClientWithSession(session *tuya.SessionData) *http.Client {

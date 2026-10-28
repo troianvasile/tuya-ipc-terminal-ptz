@@ -151,7 +151,7 @@ def do_qr(jobid, region, email):
             if stripped.startswith("QR_LOGIN_URL:"):
                 job["payload"] = stripped[len("QR_LOGIN_URL:"):]
                 job["status"] = "scan the QR code"
-            elif "Do you want to re-authenticate?" in stripped or "Continue anyway?" in stripped:
+            elif "Do you want to re-authenticate?" in stripped:
                 proc.stdin.write("y\n")
                 proc.stdin.flush()
             elif "Press Enter after scanning" in stripped:

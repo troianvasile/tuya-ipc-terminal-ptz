@@ -5,5 +5,7 @@ tuya_session_*
 tuya-ipc-terminal/.tuya-data/
 /tuya-ipc-terminal
 /tuya-ipc-terminal-ptz
+/references/
+__pycache__/
 *.log
 *.env
