@@ -1,0 +1,34 @@
+name: Go and portable HA checks
+on:
+  push:
+    branches: [main, fix/ptt-rearm-sd-lifecycle, feat/portable-ha-multiregion]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  go:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+      - run: go test ./...
+      - run: go vet ./...
+
+  ha-syntax-and-wire:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - run: python -m compileall -q homeassistant/custom_components/little_elf_talk homeassistant/tests
+      - run: python -m unittest discover -s homeassistant/tests -p 'test_*.py' -v
+      - run: node --check homeassistant/www/little-elf-ptt-card.js
