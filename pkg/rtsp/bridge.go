@@ -43,6 +43,7 @@ type WebRTCBridge struct {
 
 	// State
 	connected bool
+	stopped bool // prevent duplicate teardown, including failed starts
 	waiter    utils.Waiter
 	mutex     sync.RWMutex
 
@@ -170,10 +171,10 @@ func (wb *WebRTCBridge) Stop() {
 	wb.mutex.Lock()
 	defer wb.mutex.Unlock()
 
-	if !wb.connected {
+	if wb.stopped {
 		return
 	}
-
+	wb.stopped = true
 	wb.connected = false
 
 	core.Logger.Info().Msgf("Stopping WebRTC bridge for camera: %s", wb.camera.DeviceName)
@@ -319,8 +320,10 @@ func (wb *WebRTCBridge) setupPeerConnection(webRTCConfig *tuya.WebRTCConfig) err
 		if state == pion.PeerConnectionStateConnected {
 			core.Logger.Info().Msgf("WebRTC connection established")
 
-			if !wb.isHEVC && wb.resolution == "hd" {
-				_ = wb.cameraClient.SendResolution(0)
+			if !wb.isHEVC {
+				if wb.resolution == "hd" {
+					_ = wb.cameraClient.SendResolution(0)
+				}
 				wb.waiter.Done(nil)
 			}
 		}
@@ -343,11 +346,18 @@ func (wb *WebRTCBridge) setupPeerConnection(webRTCConfig *tuya.WebRTCConfig) err
 			for _, tr := range wb.peerConnection.GetTransceivers() {
 				if tr.Receiver() == receiver && tr.Kind() == pion.RTPCodecTypeAudio {
 					if tr.Direction() == pion.RTPTransceiverDirectionSendrecv || tr.Direction() == pion.RTPTransceiverDirectionSendonly {
-						localTrack, _ := pion.NewTrackLocalStaticRTP(
+						localTrack, err := pion.NewTrackLocalStaticRTP(
 							pion.RTPCodecCapability{MimeType: track.Codec().MimeType},
 							"audio-backchannel", "pion",
 						)
-						tr.Sender().ReplaceTrack(localTrack)
+						if err != nil {
+							core.Logger.Warn().Err(err).Msg("Talkback: unable to create audio track")
+							break
+						}
+						if err := tr.Sender().ReplaceTrack(localTrack); err != nil {
+							core.Logger.Warn().Err(err).Msg("Talkback: unable to attach audio track")
+							break
+						}
 						wb.backchannel = localTrack
 						core.Logger.Trace().Msgf("Setup backchannel track")
 						break
