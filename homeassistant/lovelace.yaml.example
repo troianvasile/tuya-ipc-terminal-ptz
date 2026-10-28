@@ -1,0 +1,12 @@
+# Place these cards into any existing view (not a complete HA dashboard).
+# Replace the bridge address, discovered RTSP path and configured camera alias.
+# Install AlexxIT WebRTC Camera for the video card.
+type: vertical-stack
+cards:
+  - type: custom:webrtc-camera
+    url: rtsp://192.168.1.50:8554/Front_Door/sd
+    mode: mse,hls
+    media: video,audio
+    ui: true
+  - type: custom:little-elf-ptt-card
+    camera: front_door
