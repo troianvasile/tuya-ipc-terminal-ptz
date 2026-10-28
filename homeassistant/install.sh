@@ -15,6 +15,14 @@ if [ ! -d "$CONFIG" ]; then
   exit 1
 fi
 
+# Check all source files before changing an existing Home Assistant installation.
+for source in "$HERE/custom_components/little_elf_talk/__init__.py" "$HERE/custom_components/little_elf_talk/rtsp_audio.py" "$HERE/custom_components/little_elf_talk/manifest.json" "$HERE/www/little-elf-ptt-card.js" "$HERE/www/little-elf-talk-processor.js"; do
+  if [ ! -s "$source" ] || [ ! -r "$source" ]; then
+    echo "Missing or unreadable installation source: $source" >&2
+    exit 1
+  fi
+done
+
 TARGET="$CONFIG/custom_components/little_elf_talk"
 CARD="$CONFIG/www/little-elf-ptt-card.js"
 PROCESSOR="$CONFIG/www/little-elf-talk-processor.js"
