@@ -263,6 +263,18 @@ class Handler(BaseHTTPRequestHandler):
                 "last_check": checked,
             }))
             return
+        if self.path == "/api/cameras":
+            try:
+                registry = json.loads((DATA / "cameras.json").read_text())
+                cameras = [{
+                    "name": c.get("deviceName", ""),
+                    "path": c.get("rtspPath", ""),
+                    "device_id": c.get("deviceId", ""),
+                } for c in registry.get("cameras", [])]
+                self.reply(200, json.dumps({"cameras": cameras}))
+            except (OSError, ValueError, TypeError):
+                self.reply(200, '{"cameras":[]}')
+            return
         if self.path == "/":
             self.reply(200, page(), "text/html; charset=utf-8")
             return
