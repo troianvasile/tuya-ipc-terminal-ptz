@@ -1,0 +1,25 @@
+# Example systemd unit for a dedicated Linux bridge host.
+# Replace INSTALL_DIR and SERVICE_USER and copy to:
+# /etc/systemd/system/tuya-ipc-rtsp.service
+# Create the user/directory first; authenticate and discover cameras
+# under the SAME User and WorkingDirectory before starting the service.
+# Do not install this unchanged: INSTALL_DIR and SERVICE_USER are placeholders.
+[Unit]
+Description=Tuya IPC RTSP / two-way audio bridge
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=simple
+User=SERVICE_USER
+WorkingDirectory=INSTALL_DIR
+ExecStart=INSTALL_DIR/tuya-ipc-terminal rtsp start --port 8554
+Restart=always
+RestartSec=10
+TimeoutStopSec=10
+KillMode=control-group
+NoNewPrivileges=true
+LimitNOFILE=65535
+
+[Install]
+WantedBy=multi-user.target
