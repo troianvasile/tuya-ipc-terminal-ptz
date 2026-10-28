@@ -2,6 +2,7 @@
 """Local-only, Supervisor-independent account UI and RTSP supervisor."""
 import base64
 import html
+import hashlib
 import io
 import json
 import logging
@@ -77,7 +78,7 @@ def session_check():
             valid = result.returncode == 0 and "Session is valid" in result.stdout
             key = region + "/" + email
             info[key] = "valid" if valid else "reauthentication needed"
-            nid = "tuya_bridge_reauth_" + __import__("hashlib").sha256(key.encode()).hexdigest()[:20]
+            nid = "tuya_bridge_reauth_" + hashlib.sha256(key.encode()).hexdigest()[:20]
             if valid:
                 notify(nid)
             else:
@@ -121,9 +122,10 @@ def supervise():
                     ["tuya-ipc-terminal", "rtsp", "start", "--port", str(RTSP_PORT)],
                     cwd="/data", stdout=subprocess.DEVNULL, stderr=subprocess.STDOUT)
                 LOG.info("RTSP bridge started (pid=%s)", RTSP.pid)
-        elif RTSP is not None and RTSP.poll() is None:
-            RTSP.terminate()
-            RTSP.wait(timeout=10)
+        elif RTSP is not None:
+            if RTSP.poll() is None:
+                RTSP.terminate()
+                RTSP.wait(timeout=10)
             RTSP = None
         STATUS["rtsp"] = "running" if RTSP is not None and RTSP.poll() is None else "stopped"
         last_set = current
@@ -166,7 +168,7 @@ def do_qr(jobid, region, email):
         if proc is not None and proc.poll() is None:
             proc.kill()
             proc.wait()
-        # Token remains solely in server memory until job expiry; not in status JSON.
+        job["payload"] = None
         job["completed"] = time.time()
 
 
