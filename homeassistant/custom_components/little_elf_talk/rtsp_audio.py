@@ -77,7 +77,7 @@ class RtspPcmuBackchannel:
             if "interleaved=" not in transport.lower():
                 raise RtspError("Server did not negotiate interleaved RTP")
             import re
-            match = re.search(r"interleaved=(\\d+)-(\\d+)", transport, re.I)
+            match = re.search(r"interleaved=(\d+)-(\d+)", transport, re.I)
             if not match:
                 raise RtspError("Malformed interleaved RTP transport")
             self.channel = int(match.group(1))
