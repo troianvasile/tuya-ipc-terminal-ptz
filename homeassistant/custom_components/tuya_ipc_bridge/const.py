@@ -1,0 +1,5 @@
+"""Constants for the Supervisor-independent Tuya bridge integration."""
+DOMAIN = "tuya_ipc_bridge"
+CONF_URL = "url"
+CONF_USERNAME = "username"
+CONF_PASSWORD = "password"
