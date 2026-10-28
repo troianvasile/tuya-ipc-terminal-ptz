@@ -4,6 +4,9 @@ import (
  "errors"
  "strings"
  "testing"
+ "time"
+ "reflect"
+ "sync"
 )
 
 func TestTalkbackEnableOnceAndDisable(t *testing.T) {
@@ -41,4 +44,66 @@ func TestTalkbackCloseBeforeUse(t *testing.T) {
  count:=0
  if err:=c.close(func(int)error{count++;return nil});err!=nil{t.Fatal(err)}
  if count!=0{t.Fatal("speaker disabled before enabled")}
+}
+
+type speakerSpy struct {
+ mu sync.Mutex
+ commands []int
+}
+func (s *speakerSpy) send(v int) error {
+ s.mu.Lock()
+ defer s.mu.Unlock()
+ s.commands = append(s.commands, v)
+ return nil
+}
+func (s *speakerSpy) snapshot() []int {
+ s.mu.Lock()
+ defer s.mu.Unlock()
+ return append([]int(nil), s.commands...)
+}
+func waitForSpeakerCommands(t *testing.T, spy *speakerSpy, expected []int) {
+ t.Helper()
+ deadline := time.Now().Add(time.Second)
+ for time.Now().Before(deadline) {
+  if reflect.DeepEqual(spy.snapshot(), expected) { return }
+  time.Sleep(5 * time.Millisecond)
+ }
+ t.Fatalf("speaker commands: got %v, want %v", spy.snapshot(), expected)
+}
+func TestTalkbackSpeakerRearmsBetweenBursts(t *testing.T) {
+ spy := new(speakerSpy)
+ c := &talkbackController{idleTimeout: 40 * time.Millisecond}
+ defer c.close(spy.send)
+ for i := 0; i < 3; i++ {
+  if err := c.forward(spy.send, func() error {return nil}); err != nil {t.Fatal(err)}
+ }
+ waitForSpeakerCommands(t, spy, []int{1,0})
+ if err := c.forward(spy.send, func() error {return nil}); err != nil {t.Fatal(err)}
+ waitForSpeakerCommands(t, spy, []int{1,0,1,0})
+}
+func TestTalkbackSpeakerStaysEnabledDuringContinuousAudio(t *testing.T) {
+ spy := new(speakerSpy)
+ c := &talkbackController{idleTimeout: 80 * time.Millisecond}
+ defer c.close(spy.send)
+ for i := 0; i < 7; i++ {
+  if err := c.forward(spy.send, func() error {return nil}); err != nil {t.Fatal(err)}
+  time.Sleep(20 * time.Millisecond)
+  if got := spy.snapshot(); !reflect.DeepEqual(got, []int{1}) {
+   t.Fatalf("speaker toggled during audio: %v", got)
+  }
+ }
+ waitForSpeakerCommands(t, spy, []int{1,0})
+}
+func TestTalkbackCloseCancelsIdleTimer(t *testing.T) {
+ spy := new(speakerSpy)
+ c := &talkbackController{idleTimeout: 30 * time.Millisecond}
+ if err := c.forward(spy.send, func() error {return nil}); err != nil {t.Fatal(err)}
+ if err := c.close(spy.send); err != nil {t.Fatal(err)}
+ time.Sleep(75 * time.Millisecond)
+ if got := spy.snapshot(); !reflect.DeepEqual(got, []int{1,0}) {
+  t.Fatalf("speaker command after close: %v", got)
+ }
+ if err := c.forward(spy.send, func() error {return nil}); err == nil {
+  t.Fatal("forward accepted after close")
+ }
 }
