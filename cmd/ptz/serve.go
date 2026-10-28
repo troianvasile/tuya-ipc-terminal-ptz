@@ -126,9 +126,7 @@ func (h *ptzHTTPHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	select {
 	case <-timer.C:
 	case <-r.Context().Done():
-		if !timer.Stop() {
-			<-timer.C
-		}
+		timer.Stop()
 	}
 	if err := tuya.SendPTZ(client, host, deviceID, "", true); err != nil {
 		log.Printf("PTZ stop failed for %s: %v", deviceID, err)
