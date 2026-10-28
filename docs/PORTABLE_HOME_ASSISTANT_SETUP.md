@@ -18,7 +18,7 @@ PTZ uses the **Tuya display name or device ID**, not the PTT alias. Neither `loc
 
 Use a regular Linux host/VM with a persistent filesystem and outbound internet access for Tuya. Home Assistant may live on the **same host** or a **different** one. HA OS users normally run the Go bridge on a separate Linux host; the project does not ship a Supervisor add-on or bridge Docker image yet.
 
-Install Git and a supported **Go 1.23+** toolchain. Check, rather than assuming your distro's `apt` version is recent enough:
+Install Git and a supported **Go 1.23+** toolchain. The repository currently specifies `toolchain go1.23.9` in `go.mod`; the Go command may download this toolchain automatically. On offline or restricted hosts, install Go 1.23.9 or newer manually. Check, rather than assuming your distro's `apt` version is recent enough:
 
 ```bash
 git --version
