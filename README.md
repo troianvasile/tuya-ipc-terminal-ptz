@@ -8,7 +8,7 @@ The Go RTSP bridge includes working audio backchannel fixes on branch `fix/ptt-r
 
 **Portable preview added on this branch:** [`homeassistant/README.md`](homeassistant/README.md) provides a new YAML-configured HA WebSocket PTT integration, browser AudioWorklet microphone card, backup-first installer, example camera configuration and an automated RTSP wire-protocol test. This is **new code, not a copy of the user's working HA private backend**, and is not yet validated on a fresh HA deployment. It must be tested before offering a release.
 
-Go PTZ supports all six authenticated Tuya web region hosts via an exact allowlist, but physical PTZ validation is still limited to two EU cameras. The **optional HA PTZ REST helper remains unpublished**. File/TTS injection is not supported.
+Go PTZ supports all six authenticated Tuya web region hosts via an exact allowlist, but physical PTZ validation is still limited to two EU cameras. The branch now includes an **optional** bearer-token-protected PTZ HTTP companion (`ptz serve`) and an [HA REST command example](homeassistant/ptz-rest-command.yaml.example). The companion must be configured on a private/HTTPS-protected network and is disabled by default. File/TTS injection is not supported.
 
 See also [`docs/PORTABLE_HOME_ASSISTANT_SETUP.md`](docs/PORTABLE_HOME_ASSISTANT_SETUP.md). Do not advertise universal Tuya camera/model or codec compatibility without tests.
 
