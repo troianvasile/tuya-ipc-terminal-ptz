@@ -14,7 +14,7 @@ services:
       HA_TOKEN: "${HA_TOKEN:-}"
       SESSION_CHECK_SECONDS: "3600"
     ports:
-      - "8554:8554/tcp"
+      - "${RTSP_BIND_IP:-127.0.0.1}:8554:8554/tcp"
       - "127.0.0.1:8788:8788/tcp"
     volumes:
       - tuya_data:/data
