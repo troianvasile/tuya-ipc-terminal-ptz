@@ -52,6 +52,7 @@ func NewPTZCmd() *cobra.Command {
 	_ = move.MarkFlagRequired("camera")
 	_ = move.MarkFlagRequired("direction")
 	cmd.AddCommand(move)
+	cmd.AddCommand(newServeCmd())
 	var stopDevice string
 	stop := &cobra.Command{Use: "stop", Short: "Stop moving a camera", RunE: func(cmd *cobra.Command, args []string) error {
 		client, host, id, err := getClient(stopDevice)
@@ -96,7 +97,7 @@ func getClient(name string) (*http.Client, string, string, error) {
 			continue
 		}
 		session := u.SessionData
-		if session.ServerHost != "protect-eu.ismartlife.me" {
+		if !tuya.IsAllowedPTZHost(session.ServerHost) {
 			return nil, "", "", fmt.Errorf("unexpected server host %q", session.ServerHost)
 		}
 		jar, err := cookiejar.New(&cookiejar.Options{PublicSuffixList: publicsuffix.List})

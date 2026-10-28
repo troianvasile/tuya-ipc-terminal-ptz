@@ -1,0 +1,27 @@
+# OPTIONAL PTZ from Home Assistant to the Go PTZ companion.
+#
+# Requires Go server: tuya-ipc-terminal ptz serve
+# The camera value in this REST command is the Tuya DISPLAY NAME or DEVICE ID
+# (e.g. "Baby Room"), not the PTT YAML camera alias (e.g. "nursery").
+# Never expose plain HTTP plus bearer token to the public internet.
+# HTTPS via a reverse proxy/VPN is required for a separate HA host.
+#
+# In configuration.yaml, merge:
+rest_command:
+  little_elf_ptz:
+    url: https://YOUR-PRIVATE-BRIDGE-HOST/api/ptz/move
+    method: POST
+    content_type: "application/json"
+    headers:
+      Authorization: !secret little_elf_ptz_authorization
+    payload: >-
+      {{ {"camera": camera, "direction": direction, "duration_ms": 400} | tojson }}
+    timeout: 30
+
+# In secrets.yaml:
+# little_elf_ptz_authorization: "Bearer <SAME_RANDOM_TOKEN_USED_BY_GO_SERVICE>"
+#
+# Existing dashboard PTZ buttons can continue calling
+# rest_command.little_elf_ptz with action data:
+#   camera: "Baby Room"
+#   direction: LEFT

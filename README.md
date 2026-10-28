@@ -1,426 +1,190 @@
-# Tuya IPC Terminal + PTZ
+# Tuya IPC Terminal + Little Elf: RTSP, two-way audio and Home Assistant
 
-An independently maintained derivative of Tuya IPC Terminal that adds camera pan/tilt control using the authenticated Little Elf / Tuya IPC web API, while retaining the RTSP bridge and stability improvements.
+A community-maintained Go bridge for compatible Tuya/Little Elf IP cameras, with RTSP video/audio, an RTSP audio backchannel, browser push-to-talk (PTT) for Home Assistant, and optional PTZ controls. This is not an official Tuya or Home Assistant project.
 
-## Project lineage and attribution
+**[Complete step-by-step installation](docs/PORTABLE_HOME_ASSISTANT_SETUP.md)** · **[Home Assistant setup](homeassistant/README.md)** · **[Troubleshooting](docs/TROUBLESHOOTING.md)** · **[Examples](examples/)**
 
-- Original project: [seydx/tuya-ipc-terminal](https://github.com/seydx/tuya-ipc-terminal) — WebRTC-to-RTSP bridge.
-- Intermediate fixed fork: [yangyongyongyong/tuya-ipc-terminal-fixed](https://github.com/yangyongyongyong/tuya-ipc-terminal-fixed) — SDP resolution, reconnect/deadlock and client cleanup fixes.
-- This derivative: PTZ CLI using the saved web-session cookies and `/api/jarvis/ptz/start` and `/api/jarvis/ptz/end` requests.
+> **Support status (October 2026):** The underlying Go RTSP/PTT lifecycle fixes were physically verified with two Little Elf cameras. The newly packaged Home Assistant frontend/backend and optional HTTP PTZ service have passing automated checks, but have **not yet passed an independent fresh-install / real-camera test**. Publishing on `main` makes the source available; it does not certify all Tuya cameras, firmware, regions or Home Assistant environments.
 
-The original MIT license and prior authors' notices are retained in `LICENSE` and Git history. This project is not an official Tuya or Little Elf product.
+## Features and compatibility
 
-## PTZ commands
+| Feature | Status |
+| --- | --- |
+| Tuya web authentication and camera discovery | Implemented; use your actual account region |
+| RTSP video + camera microphone (listening) | Implemented; tested on two Little Elf / SD H264 cameras |
+| Browser microphone -> camera speaker (PTT) | Go bridge tested; portable HA package awaiting fresh-install verification |
+| Speaker re-arm, RTP continuity, concurrent start and idle cleanup | Implemented; Go tests |
+| HD/H265 and alternative audio codecs | Depends on camera/model; validate individually |
+| PTZ CLI for six Tuya regional web hosts | Implemented with strict allowlist; **physically tested only in EU** |
+| Optional HA PTZ controls on another host | Authenticated HTTP companion and HA REST example included; **disabled by default** |
+| TTS/audio file injection into camera speaker | **Not supported/validated** |
 
-After authenticating and discovering cameras as described below:
+The available Tuya web regions are `eu-central`, `eu-east`, `us-west`, `us-east`, `china` and `india`. The regional host allowlist is not a claim that PTZ was successfully tested in all six regions.
 
-```bash
-./tuya-ipc-terminal ptz move --camera Living --direction LEFT --duration 400ms
-./tuya-ipc-terminal ptz move --camera "Baby Room" --direction RIGHT --duration 400ms
-./tuya-ipc-terminal ptz stop --camera Living
+## Architecture
+
+```text
+Tuya/Little Elf camera <--- Tuya WebRTC + MQTT speaker/PTZ ---> Go bridge (Linux)
+                                                |
+                                      RTSP :8554 on private LAN/VPN
+                                                |
+                      +-------------------------+-------------------+
+                      |                                             |
+             Home Assistant/go2rtc                           HA Python PTT integration
+              video + listening                              WebSocket <--- browser mic
+                      |                                             |
+            Lovelace WebRTC card                           PCMU/8000 RTSP backchannel
+                                                                                  (same Go bridge)
+
+Optional: HA rest_command -> HTTPS/VPN -> PTZ companion :8787 -> Tuya regional web API
 ```
 
-PTZ was physically verified on two Little Elf cameras using the EU web endpoint. Other regions and camera models have not been validated. STOP is attempted after each timed movement but cannot be guaranteed if the network or process fails; keep the camera's travel path clear. The REST helper used in one private Home Assistant deployment is **not included** in this repository.
+The bridge and HA may be on **different machines or networks**, provided HA/go2rtc can reach the bridge over a trusted route. Do not copy the `172.17.0.1` Docker IP from somebody else's setup.
 
-## Security and limitations
+## Requirements
 
-- Never commit `.tuya-data`, saved authentication cookies, user credentials, tokens, or built binaries.
-- The web PTZ endpoints are reverse-engineered and may change without notice.
-- Test each camera and direction at a short duration before routine use.
-- Streaming and PTZ both depend on the vendor web service and working authentication.
+- Compatible Tuya/Little Elf camera accessible with a Tuya web account (camera discovery and cloud signalling must work).
+- A Linux host with Git, **Go 1.23+** and network access to Tuya and the camera.
+- Home Assistant for the optional browser PTT package; HTTPS/localhost, microphone permission and a browser with AudioWorklet.
+- For listening/video in Lovelace: [AlexxIT WebRTC Camera](https://github.com/AlexxIT/WebRTC) (installed separately) and an accessible RTSP stream.
+- For the packaged PTT encoder: camera RTSP talkback must advertise **PCMU/8000**. This path is not a universal codec transcoder.
+- TCP **8554** on the Go host reachable privately from HA/go2rtc. It is **unauthenticated, unencrypted RTSP**: firewall or VPN it; **do not expose publicly**.
 
----
+## Quick start: Go bridge (new installation)
 
-## Background: fixed fork documentation
-
-# Tuya IPC Terminal (fixed fork)
-
-> **This is a fixed fork** of [seydx/tuya-ipc-terminal](https://github.com/seydx/tuya-ipc-terminal) (MIT).
-> Upstream has been inactive for over a year, so fixes live here.
-
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
-[![Go Version](https://img.shields.io/badge/Go-1.21%2B-blue.svg)](https://golang.org/)
-[![Build Status](https://img.shields.io/badge/Build-Passing-brightgreen.svg)]()
-
-## Fixes in this fork
-
-| # | Bug | Symptom | Fix |
-|---|-----|---------|-----|
-| 1 | `generateSDP` hardcoded HD stream info | Requesting `/sd` returned an SDP advertising HEVC while the bridge forwarded H264 → every client failed to decode | SDP now reflects the resolution actually requested (`pkg/rtsp/protocol.go`) |
-| 2 | `startStream` held the stream mutex during blocking WebRTC negotiation | First connection worked, **every reconnect hung forever** (deadlock with `RemoveClient`) | Lock released before `bridge.Start()` (`pkg/rtsp/server.go`) |
-| 3 | Delayed-shutdown callback ran WebRTC teardown under the stream mutex | Deadlock with track goroutines; stream never shut down, dead WebRTC bridge reused | State flipped under lock, teardown after unlock; fresh bridge created per session |
-| 4 | Broken-pipe TCP clients never removed from forwarder | Endless `write: broken pipe` spam, stale sessions | Dead clients deleted on write error (`pkg/rtsp/forwarder.go`) |
-
-Verified against Tuya cameras (H264 SD stream 640x360): 5/5 consecutive snapshot pulls succeed where upstream only ever worked on the first connection.
-
-A powerful CLI tool to connect Tuya Smart Cameras to RTSP clients through reverse-engineered Tuya browser client APIs. Stream your Tuya cameras directly to any RTSP-compatible media player or home automation system.
-
-## ✨ Features
-
-- 🔐 **Dual Authentication**: QR code scanning OR email/password login
-- 🌍 **Multi-Region Support**: Support for all Tuya regions (EU, US, China, India)
-- 👥 **Multi-User Management**: Handle multiple Tuya Smart accounts simultaneously
-- 📡 **Session Persistence**: Automatic session management with validation
-- 🎥 **Camera Discovery**: Automatic detection of all cameras from authenticated accounts
-- 🎬 **RTSP Server**: WebRTC-to-RTSP bridge for universal compatibility
-- 🚀 **Real-time Streaming**: Direct camera access with minimal latency
-- 🔄 **Multi-Client Support**: Multiple RTSP clients per camera stream
-- 🎯 **H265/HEVC Ready**: Advanced codec support for optimal performance
-- 🎤 **Two-Way Audio**: Bidirectional audio for compatible cameras
-
-## 🚀 Quick Start
-
-### Installation
+Use a **new, dedicated directory** and the same account and working directory for authentication, discovery and the systemd service.
 
 ```bash
-git clone <repository-url>
-cd tuya-ipc-terminal
-chmod +x build.sh
-./build.sh
-```
+git clone https://github.com/troianvasile/tuya-ipc-terminal-ptz.git
+cd tuya-ipc-terminal-ptz
+go version
+go test ./...
+go build -o tuya-ipc-terminal .
 
-### 1-Minute Setup
-
-```bash
-# 1. Add your Tuya account (interactive)
-./tuya-ipc-terminal auth add eu-central user@example.com
-
-# 2. Discover your cameras
-./tuya-ipc-terminal cameras refresh
-
-# 3. Start streaming
-./tuya-ipc-terminal rtsp start --port 8554
-
-# 4. Watch your cameras
-ffplay rtsp://localhost:8554/MyCamera
-```
-
-## 📖 Complete Documentation
-
-### 🔐 Authentication Management
-
-#### Two Authentication Methods
-
-**🎯 QR Code**
-```bash
-./tuya-ipc-terminal auth add eu-central user@example.com
-# Scan QR code with Tuya Smart/Smart Life app
-```
-
-**🔑 Email/Password**
-```bash
-./tuya-ipc-terminal auth add eu-central user@example.com --password
-# Enter password and select country code interactively
-```
-
-#### User Management Commands
-
-```bash
-# List all authenticated users
-./tuya-ipc-terminal auth list
-
-# Remove user authentication
-./tuya-ipc-terminal auth remove eu-central user@example.com
-
-# Refresh expired session
-./tuya-ipc-terminal auth refresh eu-central user@example.com
-
-# Test session validity
-./tuya-ipc-terminal auth test eu-central user@example.com
-```
-
-#### 🌍 Regional Information
-
-```bash
-# Show all available regions
+# Discover supported web regions:
 ./tuya-ipc-terminal auth show-regions
 
-# Show country codes for password authentication
-./tuya-ipc-terminal auth show-country-codes
-./tuya-ipc-terminal auth show-country-codes --search germany
-```
-
-**Available Regions:**
-| Region | Endpoint | Description |
-|--------|----------|-------------|
-| `eu-central` | protect-eu.ismartlife.me | Central Europe |
-| `eu-east` | protect-we.ismartlife.me | East Europe |
-| `us-west` | protect-us.ismartlife.me | West America |
-| `us-east` | protect-ue.ismartlife.me | East America |
-| `china` | protect.ismartlife.me | China |
-| `india` | protect-in.ismartlife.me | India |
-
-### 📹 Camera Management
-
-```bash
-# List all discovered cameras
-./tuya-ipc-terminal cameras list
-
-# List cameras for specific user
-./tuya-ipc-terminal cameras list --user eu-central_user_at_example_com
-
-# Refresh camera discovery
-./tuya-ipc-terminal cameras refresh
-
-# Get detailed camera information
-./tuya-ipc-terminal cameras info [camera-id-or-name]
-```
-
-### 📡 RTSP Server Management
-
-```bash
-# Start RTSP server
-./tuya-ipc-terminal rtsp start --port 8554
-
-# Start as background daemon
-./tuya-ipc-terminal rtsp start --port 8554 --daemon
-
-# Stop RTSP server
-./tuya-ipc-terminal rtsp stop
-
-# Check server status
-./tuya-ipc-terminal rtsp status
-
-# List all available camera endpoints
-./tuya-ipc-terminal rtsp list-endpoints
-```
-
-## 🎬 RTSP Streaming Guide
-
-### 📺 Connecting to Camera Streams
-
-Camera streams are available at:
-```
-rtsp://localhost:[port]/[camera-name]
-rtsp://localhost:[port]/[camera-name]/sd  # Sub-stream (lower quality)
-```
-
-
-### 🏠 Home Automation Integration
-
-**Home Assistant**
-```yaml
-camera:
-  - platform: generic
-    stream_source: rtsp://localhost:8554/LivingRoomCamera
-    name: "Living Room Camera"
-    
-  - platform: generic
-    stream_source: rtsp://localhost:8554/FrontDoor
-    name: "Front Door Camera"
-```
-
-**Go2RTC Integration**
-```yaml
-streams:
-  living_room:
-    - rtsp://localhost:8554/LivingRoomCamera
-  front_door:
-    - rtsp://localhost:8554/FrontDoor
-```
-
-
-## 🏗️ Advanced Usage
-
-### 🔧 Running as System Service
-
-**Create systemd service:**
-```bash
-sudo tee /etc/systemd/system/tuya-rtsp.service > /dev/null <<EOF
-[Unit]
-Description=Tuya IPC Terminal RTSP Server
-After=network.target
-
-[Service]
-Type=simple
-User=$USER
-WorkingDirectory=$PWD
-ExecStart=$PWD/tuya-ipc-terminal rtsp start --port 8554
-Restart=always
-RestartSec=10
-
-[Install]
-WantedBy=multi-user.target
-EOF
-
-sudo systemctl enable tuya-rtsp
-sudo systemctl start tuya-rtsp
-```
-
-### 🔀 Multiple Server Instances
-
-```bash
-# Different ports for different purposes
-./tuya-ipc-terminal rtsp start --port 8554 --daemon  # Main cameras
-./tuya-ipc-terminal rtsp start --port 8555 --daemon  # Backup/secondary
-```
-
-### 👥 Multi-User Setup Example
-
-```bash
-# Add accounts from different regions
-./tuya-ipc-terminal auth add eu-central home@example.com      # European account
-./tuya-ipc-terminal auth add --password us-west work@company.com  # US business account
-./tuya-ipc-terminal auth add china personal@example.cn        # Chinese account
-
-# Discover all cameras
-./tuya-ipc-terminal cameras refresh
-
-# List everything
-./tuya-ipc-terminal auth list
-./tuya-ipc-terminal cameras list
-```
-
-## 🔄 Data Flow
-
-1. **Authentication** → Tuya Cloud API
-2. **Discovery** → MQTT + Tuya API
-3. **WebRTC Connection** → Direct camera stream
-4. **RTP Processing** → Video/audio packet handling
-5. **RTSP Server** → Standard protocol output
-
-## 💾 Data Storage
-
-```
-.tuya-data/
-├── user_eu-central_user_at_example_com.json    # User sessions
-├── user_us-west_business_at_company_com.json   # Multiple accounts
-└── cameras.json                                # Camera registry
-```
-
-## 🛠️ Technical Details
-
-### 🎥 Supported Features
-
-| Feature | Status | Notes |
-|---------|--------|-------|
-| H.264 Video | ✅ | Universal support |
-| H.265/HEVC | ✅ | Better compression |
-| PCMU Audio | ✅ | Standard quality |
-| PCMA Audio | ✅ | Alternative codec |
-| HD Streams | ✅ | Main camera stream |
-| SD Streams | ✅ | Sub-stream, lower bandwidth |
-| Multi-client | ✅ | Multiple viewers per camera |
-| Two-way Audio | ✅ | Camera dependent |
-
-### 🎯 Supported Camera Types
-
-| Category | Description | Compatibility |
-|----------|-------------|---------------|
-| `sp` | Smart cameras | ✅ Full support |
-| `dghsxj` | Additional camera type | ✅ Full support |
-| Others | Generic Tuya cameras | ⚠️ May work |
-
-## 🐛 Troubleshooting
-
-### 🔐 Authentication Issues
-
-**Problem**: Login fails
-```bash
-# 1. Check session status
-./tuya-ipc-terminal auth test eu-central user@example.com
-
-# 2. Try refreshing
-./tuya-ipc-terminal auth refresh eu-central user@example.com
-
-# 3. Re-authenticate if needed
-./tuya-ipc-terminal auth remove eu-central user@example.com
+# Replace region/email with your own account. QR login is interactive:
 ./tuya-ipc-terminal auth add eu-central user@example.com
-```
+# Or use the password flow (not an unattended CLI flag with a password):
+# ./tuya-ipc-terminal auth add eu-central user@example.com --password
 
-**Problem**: Country code not found (password login)
-```bash
-# Search for your country
-./tuya-ipc-terminal auth show-country-codes --search germany
-./tuya-ipc-terminal auth show-country-codes --search "united states"
-```
-
-### 📹 Camera Discovery Issues
-
-**Problem**: No cameras found
-```bash
-# 1. Verify authentication
-./tuya-ipc-terminal auth list
-
-# 2. Force refresh
+./tuya-ipc-terminal auth test eu-central user@example.com
 ./tuya-ipc-terminal cameras refresh
-
-# 3. Check if cameras are online in Tuya Smart app
-./tuya-ipc-terminal cameras list --verbose
-```
-
-### 📡 RTSP Connection Issues
-
-**Problem**: Can't connect to stream
-```bash
-# 1. Check server status
-./tuya-ipc-terminal rtsp status
-
-# 2. List available streams
+./tuya-ipc-terminal cameras list
 ./tuya-ipc-terminal rtsp list-endpoints
 
-# 3. Test with simple player
-ffplay rtsp://localhost:8554/CameraName
+# Foreground first, to verify the logs and camera negotiation:
+./tuya-ipc-terminal rtsp start --port 8554
 ```
 
-**Problem**: Poor stream quality
+The bridge saves session cookies and camera registry in `.tuya-data/` under the **current working directory**. Never commit this directory. Do not change the user/directory between setup and systemd.
+
+After verifying the stream, install a persistent service using [`examples/tuya-ipc-rtsp.service.example`](examples/tuya-ipc-rtsp.service.example), replacing `INSTALL_DIR` and `SERVICE_USER`. Restart/boot persistence is checked separately in the complete guide.
+
+Example stream URLs (use the **discovered RTSP path**, not the display name verbatim):
+
+```text
+rtsp://BRIDGE_PRIVATE_IP:8554/Front_Door/sd
+rtsp://BRIDGE_PRIVATE_IP:8554/Front_Door/hd
+```
+
+## Quick start: Home Assistant PTT
+
+Once the Go stream works, read [the detailed HA instructions](homeassistant/README.md).
+
+On the computer with access to the **actual HA configuration directory**:
+
 ```bash
-# Try sub-stream for lower bandwidth
-ffplay rtsp://localhost:8554/CameraName/sd
-
-# Check camera capabilities
-./tuya-ipc-terminal cameras info "Camera Name"
+# If the repository was cloned in the previous step:
+bash homeassistant/install.sh /path/to/homeassistant/config
 ```
 
-### Development Setup
+For Docker, use the **host folder mapped to /config**; for HA OS, install/copy the files under `/config` using an appropriate file/SSH add-on. The installer backs up existing integration/card files; it **does not restart HA**.
+
+Merge the following example into HA's `configuration.yaml` (replace the IP and discovered path; choose any unique local alias):
+
+```yaml
+little_elf_talk:
+  admin_only: true
+  cameras:
+    front_door:
+      rtsp_url: rtsp://192.168.1.50:8554/Front_Door/sd
+```
+
+Validate configuration and restart HA manually. Add the **JavaScript module** resource `/local/little-elf-ptt-card.js?v=0.1.0` in the Lovelace resource settings. The installer also supplies `/local/little-elf-talk-processor.js`, which the card loads itself.
+
+Inside a Lovelace view:
+
+```yaml
+type: vertical-stack
+cards:
+  - type: custom:webrtc-camera
+    url: rtsp://192.168.1.50:8554/Front_Door/sd
+    mode: mse,hls
+    media: video,audio
+    ui: true
+  - type: custom:little-elf-ptt-card
+    camera: front_door
+```
+
+`camera: front_door` is the **HA alias** from `little_elf_talk.cameras`, not necessarily the camera display name. PTT uses the authenticated HA WebSocket; microphone data is sent to HA, then over private RTSP to the Go bridge. Do **not** configure go2rtc TTS/file injection.
+
+## Optional PTZ: CLI and Home Assistant
 
 ```bash
-git clone <repository-url>
-cd tuya-ipc-terminal
-go mod download
-go run main.go --help
+# Run in the same bridge working directory as auth/camera discovery:
+./tuya-ipc-terminal ptz move --camera "Front Door" --direction LEFT --duration 400ms
+./tuya-ipc-terminal ptz stop --camera "Front Door"
 ```
 
-## ⚠️ Limitations & Considerations
+The camera argument is the **discovered Tuya display name or device ID** (not the HA PTT alias). PTZ uses a reverse-engineered vendor endpoint; test short movements and keep its path clear.
 
-### Technical Limitations
-- 🌐 Requires active internet connection to Tuya servers
-- ☁️ Dependent on Tuya Cloud availability
-- 📱 QR authentication requires mobile app
-- 🔧 Some advanced camera features may not be supported
+To control PTZ from **another HA host**, launch the separately configured `./tuya-ipc-terminal ptz serve` companion (binds `127.0.0.1:8787` by default) with a secret bearer token. Configure HTTPS/VPN/private routing, then merge [`homeassistant/ptz-rest-command.yaml.example`](homeassistant/ptz-rest-command.yaml.example) and pass `camera` / `direction` in the Lovelace button. **Do not run the companion openly over HTTP on the internet.** See [complete PTZ instructions](docs/PORTABLE_HOME_ASSISTANT_SETUP.md#7-optional-ptz-for-home-assistant).
 
-### Security Considerations
-- 🔒 Sessions stored locally in JSON files
-- 🛡️ No additional encryption beyond Tuya's implementation
-- 🔥 Firewall configuration recommended for external access
-- 🔐 Consider network security for RTSP streams
+## Commands and files
 
-## 📄 License
+| Command | Purpose |
+| --- | --- |
+| `auth add REGION EMAIL` | QR/password login |
+| `auth test REGION EMAIL` | Check saved account session |
+| `auth show-regions` | Show regional endpoints |
+| `cameras refresh` / `cameras list` | Discover/list cameras |
+| `cameras info NAME_OR_ID` | Inspect camera capabilities |
+| `rtsp start --port 8554` | Run the RTSP server (foreground) |
+| `rtsp list-endpoints` | Show discovered RTSP paths |
+| `ptz move --camera NAME --direction UP --duration 400ms` | Bounded PTZ move |
+| `ptz stop --camera NAME` | Send PTZ stop |
+| `ptz serve --listen 127.0.0.1:8787` | Optional bearer-protected PTZ API |
 
-MIT License - See [LICENSE](LICENSE) for details.
+Source layout: `pkg/rtsp/` (bridge and RTP), `cmd/auth` / `cmd/cameras` / `cmd/ptz`, `homeassistant/custom_components/little_elf_talk/`, `homeassistant/www/`, `homeassistant/install.sh`, `examples/`, `docs/`.
 
-## ⚠️ Disclaimer
+## Tests and development
 
-This tool is created through reverse engineering of Tuya's web client APIs. Use responsibly and ensure compliance with:
+```bash
+go test ./...
+go vet ./...
+python3 -m compileall -q homeassistant/custom_components/little_elf_talk homeassistant/tests
+python3 -m unittest discover -s homeassistant/tests -p 'test_*.py' -v
+node --check homeassistant/www/little-elf-ptt-card.js
+node --check homeassistant/www/little-elf-talk-processor.js
+```
 
-- Tuya's Terms of Service
-- Local privacy laws and regulations
-- Camera usage regulations in your jurisdiction
+[GitHub Actions](.github/workflows/portable-ci.yml) runs these automated checks. They test source compatibility and the RTSP wire format, **not** an actual Home Assistant installation, device speaker, browser permissions or non-EU PTZ.
 
-The authors are not responsible for any issues arising from the use of this software.
+## Security, limitations and help
 
-## 🆘 Support
+- Bind/firewall RTSP to trusted LAN/VPN. The Go listener defaults to **all interfaces**; it does not have RTSP authentication or TLS.
+- The PTZ companion needs a **minimum 32-character token**; use HTTPS/private routing for HA-to-PTZ traffic, and keep token values in HA `secrets.yaml`.
+- Saved Tuya sessions/credentials live in `.tuya-data/`. Store with private filesystem permissions.
+- Browser microphone requires HTTPS (or localhost) and permission. The portable HA backend defaults to admin-only PTT.
+- Some Tuya models/firmware, regions or codec variants may fail. PCMU/8000 talkback is the currently targeted path.
+- TTS speaker playback is not validated and is not a feature of this installation.
+- For failures, see [`docs/TROUBLESHOOTING.md`](docs/TROUBLESHOOTING.md). Remove credentials, cookies, tokens, private IPs and camera device IDs from shared logs.
+- The Go bridge supports signalling through Tuya web services; it is **not an entirely offline camera implementation**.
 
-Having issues? Here's how to get help:
+## Credits and license
 
-1. 📖 Check this README for common solutions
-2. 🐛 Search existing [GitHub Issues](link-to-issues)
-3. 💬 Create a new issue with:
-   - Your operating system
-   - Go version (`go version`)
-   - Error messages
-   - Steps to reproduce
+Derived from [seydx/tuya-ipc-terminal](https://github.com/seydx/tuya-ipc-terminal) and the [yangyongyongyong fixed fork](https://github.com/yangyongyongyong/tuya-ipc-terminal-fixed), with additional SD, RTSP/talkback, lifecycle and PTZ changes. See [MIT LICENSE](LICENSE). Reverse-engineered Tuya APIs are subject to change; review vendor terms and your privacy/legal requirements. No affiliation with Tuya, Little Elf or Home Assistant.
 
----
-
-**⭐ If this project helps you, please consider giving it a star on GitHub!**
+[Report a reproducible issue](https://github.com/troianvasile/tuya-ipc-terminal-ptz/issues) with OS, HA/browser versions, camera capabilities/codec information, sanitized logs and exact reproduction steps.

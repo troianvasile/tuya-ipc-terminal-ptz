@@ -1,0 +1,18 @@
+# MERGE into the existing configuration.yaml; do not overwrite other
+# Home Assistant settings. This is a custom YAML integration (not config flow).
+# The following RTSP URLs must be reachable FROM HA (even when containerized).
+# They point to the Go bridge, NOT directly to a Tuya camera IP.
+#
+# Use your OWN discovered camera RTSP paths from the bridge.
+little_elf_talk:
+  admin_only: true           # default: only HA administrators can use PTT
+  cameras:
+    front_door:              # local PTT alias, used in Lovelace "camera:"
+      rtsp_url: rtsp://192.168.1.50:8554/Front_Door/sd
+    nursery:
+      rtsp_url: rtsp://192.168.1.50:8554/Nursery/sd
+
+# If enabled for all authenticated HA users, set admin_only: false deliberately.
+# Camera aliases are local keys; PTZ uses the Tuya display name or device ID.
+# The Go RTSP bridge has no RTSP authentication/TLS; protect TCP 8554 via
+# firewall/VPN and NEVER forward the port to the public internet.

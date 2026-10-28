@@ -1,0 +1,32 @@
+# Portable Lovelace view example (ONE camera); integrate into any dashboard.
+#
+# Requires:
+# - A reachable Go bridge (replace its address and discovered RTSP path below)
+# - AlexxIT WebRTC Camera for video/listening
+# - homeassistant/custom_components/little_elf_talk/ installed and configured
+# - Both homeassistant/www/ JS files installed
+# - /local/little-elf-ptt-card.js?v=0.1.0 registered as a JS module
+#
+# The PTT camera is a LOCAL alias from configuration.yaml
+# (little_elf_talk.cameras.front_door), not the RTSP path or Tuya device name.
+# PTT requires a browser microphone in an HTTPS / localhost secure context.
+type: vertical-stack
+cards:
+  - type: custom:webrtc-camera
+    url: rtsp://192.168.1.50:8554/Front_Door/sd
+    mode: mse,hls
+    media: video,audio
+    ui: true
+  - type: custom:little-elf-ptt-card
+    camera: front_door
+
+# Optional PTZ: install the separately authenticated ptz serve companion,
+# configure homeassistant/ptz-rest-command.yaml.example, then add a button:
+# - type: button
+#   name: Pan left
+#   tap_action:
+#     action: perform-action
+#     perform_action: rest_command.little_elf_ptz
+#     data:
+#       camera: Front Door    # Tuya display name or ID, NOT the PTT alias
+#       direction: LEFT

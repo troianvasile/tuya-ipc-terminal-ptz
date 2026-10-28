@@ -14,7 +14,7 @@ func SendPTZ(client *http.Client, host, deviceID, direction string, stop bool) e
 	if client == nil || strings.TrimSpace(deviceID) == "" {
 		return fmt.Errorf("missing client or device ID")
 	}
-	if host != "protect-eu.ismartlife.me" {
+	if !IsAllowedPTZHost(host) {
 		return fmt.Errorf("untrusted Little Elf host: %q", host)
 	}
 	path := "/api/jarvis/ptz/start"
