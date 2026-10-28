@@ -1,0 +1,21 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Connect to Tuya IPC Bridge",
+        "description": "Enter the private management URL of the Linux/Docker bridge. Home Assistant Container cannot reach a different host using localhost.",
+        "data": {
+          "url": "Management URL",
+          "username": "Username",
+          "password": "Password"
+        }
+      }
+    },
+    "error": {
+      "cannot_connect": "Connection or authentication failed. Check the address and credentials."
+    },
+    "abort": {
+      "already_configured": "This bridge is already configured."
+    }
+  }
+}
