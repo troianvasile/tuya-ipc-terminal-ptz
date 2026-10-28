@@ -1,0 +1,28 @@
+name: Supervisor-free Tuya Bridge
+on:
+  push:
+    branches: [feature/supervisor-free-tuya-bridge]
+  pull_request:
+    paths:
+      - 'deploy/**'
+      - 'cmd/auth/auth.go'
+      - '.github/workflows/supervisor-free-bridge.yml'
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - name: Check Go bridge
+        run: |
+          go test ./...
+          go vet ./...
+      - name: Validate Python syntax
+        run: python3 -m py_compile deploy/manage.py
+      - name: Validate Compose and Docker build
+        run: |
+          cp deploy/.env.example deploy/.env
+          docker compose -f deploy/compose.yaml config --quiet
+          docker build -f deploy/Dockerfile -t tuya-bridge:test .
