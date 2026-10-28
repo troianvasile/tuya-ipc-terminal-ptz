@@ -1,6 +1,10 @@
-# Place these cards into any existing view (not a complete HA dashboard).
-# Replace the bridge address, discovered RTSP path and configured camera alias.
-# Install AlexxIT WebRTC Camera for the video card.
+# Paste into an existing Lovelace view. Do not replace the whole dashboard.
+# Video/listening requires AlexxIT WebRTC Camera installed separately.
+# PTT requires the portable little_elf_talk HA integration, its two JS files,
+# a registered Lovelace resource, and an HTTPS/localhost browser microphone.
+#
+# The video URL is the discovered RTSP path on YOUR Go bridge; the PTT camera
+# is the alias under "little_elf_talk.cameras" in configuration.yaml.
 type: vertical-stack
 cards:
   - type: custom:webrtc-camera
@@ -10,3 +14,6 @@ cards:
     ui: true
   - type: custom:little-elf-ptt-card
     camera: front_door
+
+# Optional PTZ from another HA host requires separately running ptz serve
+# behind HTTPS/VPN and registering rest_command.little_elf_ptz.
