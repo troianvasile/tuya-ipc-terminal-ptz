@@ -1,0 +1,243 @@
+/** Little Elf push-to-talk microphone button for Home Assistant.
+ * Backend: homeassistant/custom_components/little_elf_talk.
+ * Audio: Web Audio -> mono 8kHz PCMU -> authenticated HA WebSocket -> RTSP.
+ * No camera IPs, tokens, cloud account details, or go2rtc addresses in JS.
+ */
+const LITTLE_ELF_WORKLET = `
+class LittleElfMuLawProcessor extends AudioWorkletProcessor {
+  constructor() {
+    super();
+    this.phase = 0; this.sum = 0; this.count = 0;
+    this.packet = new Uint8Array(160); this.position = 0;
+  }
+  mulaw(value) {
+    let pcm = Math.max(-32768, Math.min(32767, Math.round(value * 32767)));
+    let sign = pcm < 0 ? 0x80 : 0;
+    if (pcm < 0) pcm = -pcm;
+    pcm = Math.min(32635, pcm + 0x84);
+    let exponent = 7, mask = 0x4000;
+    while (exponent > 0 && (pcm & mask) === 0) { exponent--; mask >>= 1; }
+    let mantissa = (pcm >> (exponent + 3)) & 15;
+    return (~(sign | (exponent << 4) | mantissa)) & 255;
+  }
+  process(inputs) {
+    const samples = inputs[0]?.[0];
+    if (!samples) return true;
+    for (let i = 0; i < samples.length; ++i) {
+      this.sum += samples[i]; this.count++;
+      this.phase += 8000;
+      if (this.phase >= sampleRate) {
+        this.phase -= sampleRate;
+        const sample = this.sum / Math.max(1, this.count);
+        this.packet[this.position++] = this.mulaw(sample);
+        this.sum = 0; this.count = 0;
+        if (this.position === this.packet.length) {
+          const frame = this.packet;
+          this.port.postMessage(frame.buffer, [frame.buffer]);
+          this.packet = new Uint8Array(160); this.position = 0;
+        }
+      }
+    }
+    return true;
+  }
+}
+registerProcessor('little-elf-mulaw', LittleElfMuLawProcessor);
+`;
+
+class LittleElfPttCard extends HTMLElement {
+  constructor() {
+    super();
+    this.attachShadow({mode: 'open'});
+    this._hass = null;
+    this._pressed = false;
+    this._generation = 0;
+    this._session = null;
+    this._stream = null;
+    this._ctx = null;
+    this._node = null;
+    this._blur = () => this._stop();
+    this._visibility = () => { if (document.hidden) this._stop(); };
+  }
+
+  setConfig(config) {
+    if (!config.camera || typeof config.camera !== 'string') {
+      throw new Error('little-elf-ptt-card requires camera: <configured camera ID>');
+    }
+    this._config = {...config};
+    this._render();
+  }
+  set hass(hass) { this._hass = hass; }
+  getCardSize() { return 2; }
+
+  connectedCallback() {
+    window.addEventListener('blur', this._blur);
+    document.addEventListener('visibilitychange', this._visibility);
+    if (this._config) this._render();
+  }
+  disconnectedCallback() {
+    window.removeEventListener('blur', this._blur);
+    document.removeEventListener('visibilitychange', this._visibility);
+    this._stop();
+  }
+
+  _render() {
+    if (this._button || !this._config) return;
+    this.shadowRoot.innerHTML = `
+      <style>
+        :host { display:block; }
+        button { display:block; width:100%; box-sizing:border-box; padding:16px 12px;
+          border:1px solid var(--divider-color,#666); border-radius:12px;
+          background:var(--card-background-color,#242830);
+          color:var(--primary-text-color,#fff);
+          font-size:16px; font-weight:600; touch-action:none; user-select:none;
+          cursor:pointer; }
+        button.active { background:#982c34; color:#fff; border-color:#d66; }
+        button:focus-visible { outline:2px solid var(--primary-color,#48b); }
+        .hint { text-align:center; font-size:12px; padding:7px 0 2px;
+          color:var(--secondary-text-color,#999); }
+      </style>
+      <button type="button" aria-pressed="false">🎙 Hold to talk</button>
+      <div class="hint" role="status" aria-live="polite">Microphone off · Hold to speak</div>`;
+    this._button = this.shadowRoot.querySelector('button');
+    this._hint = this.shadowRoot.querySelector('.hint');
+    this._button.addEventListener('pointerdown', event => {
+      if (event.button !== 0) return;
+      event.preventDefault();
+      try { this._button.setPointerCapture(event.pointerId); } catch (_) {}
+      this._start();
+    });
+    this._button.addEventListener('pointerup', () => this._stop());
+    this._button.addEventListener('pointercancel', () => this._stop());
+    this._button.addEventListener('lostpointercapture', () => this._stop());
+    this._button.addEventListener('keydown', event => {
+      if ((event.code === 'Space' || event.code === 'Enter') && !event.repeat) {
+        event.preventDefault(); this._start();
+      }
+    });
+    this._button.addEventListener('keyup', event => {
+      if (event.code === 'Space' || event.code === 'Enter') {
+        event.preventDefault(); this._stop();
+      }
+    });
+  }
+
+  _status(label, detail, active=false) {
+    if (!this._button || !this._hint) return;
+    this._button.textContent = label;
+    this._button.classList.toggle('active', active);
+    this._button.setAttribute('aria-pressed', String(active));
+    this._hint.textContent = detail;
+  }
+
+  async _start() {
+    if (this._pressed || !this.isConnected) return;
+    this._pressed = true;
+    const generation = ++this._generation;
+    this._status('🔴 Connecting microphone…', 'Allow microphone access if prompted', true);
+    try {
+      if (!this._hass?.connection) throw new Error('Home Assistant is not connected');
+      if (!navigator.mediaDevices?.getUserMedia) {
+        throw new Error('Microphone needs HTTPS or localhost');
+      }
+      const AudioContextClass = window.AudioContext || window.webkitAudioContext;
+      if (!AudioContextClass || !window.AudioWorkletNode) {
+        throw new Error('This browser does not support AudioWorklet');
+      }
+      // Create/resume in the press gesture before permission and network awaits.
+      const context = new AudioContextClass();
+      this._ctx = context;
+      await context.resume();
+      const mic = await navigator.mediaDevices.getUserMedia({
+        audio: {echoCancellation:true, noiseSuppression:true, autoGainControl:true},
+        video:false,
+      });
+      if (!this._pressed || this._generation !== generation) {
+        mic.getTracks().forEach(track => track.stop()); return;
+      }
+      this._stream = mic;
+
+      const response = await this._hass.connection.sendMessagePromise({
+        type:'little_elf_talk/start', camera:this._config.camera,
+      });
+      const token = response?.session;
+      if (!token) throw new Error('Talkback backend returned no session');
+      if (!this._pressed || this._generation !== generation) {
+        this._hass.connection.sendMessagePromise({
+          type:'little_elf_talk/stop', session:token,
+        }).catch(() => {});
+        return;
+      }
+      this._session = token;
+
+      const blob = new Blob([LITTLE_ELF_WORKLET], {type:'text/javascript'});
+      const url = URL.createObjectURL(blob);
+      try { await context.audioWorklet.addModule(url); }
+      finally { URL.revokeObjectURL(url); }
+      if (!this._pressed || this._generation !== generation) return;
+
+      const source = context.createMediaStreamSource(mic);
+      const processor = new AudioWorkletNode(context, 'little-elf-mulaw');
+      this._node = processor;
+      const mute = context.createGain();
+      mute.gain.value = 0;
+      source.connect(processor);
+      processor.connect(mute);
+      mute.connect(context.destination);
+      processor.port.onmessage = event => {
+        if (!this._pressed || this._session !== token || !this._hass?.connection) return;
+        const bytes = new Uint8Array(event.data);
+        let binary = '';
+        for (const byte of bytes) binary += String.fromCharCode(byte);
+        try {
+          this._hass.connection.sendMessage({
+            type:'little_elf_talk/chunk', session:token, audio:btoa(binary),
+          });
+        } catch (_) {
+          this._stop();
+        }
+      };
+      this._status('🔴 Talking — release to stop', '8 kHz PCMU · Sending microphone', true);
+    } catch (error) {
+      if (this._generation === generation) {
+        this._status('🎙 Hold to talk', String(error?.message || error), false);
+        this._stop(true);
+      }
+    }
+  }
+
+  _stop(keepError=false) {
+    if (!this._pressed && !this._stream && !this._ctx && !this._session) return;
+    this._pressed = false;
+    this._generation++;
+    const token = this._session;
+    this._session = null;
+    if (this._node) {
+      try { this._node.port.onmessage = null; this._node.disconnect(); } catch (_) {}
+      this._node = null;
+    }
+    if (this._stream) {
+      this._stream.getTracks().forEach(track => track.stop());
+      this._stream = null;
+    }
+    if (this._ctx) {
+      this._ctx.close().catch(() => {});
+      this._ctx = null;
+    }
+    if (token && this._hass?.connection) {
+      this._hass.connection.sendMessagePromise({
+        type:'little_elf_talk/stop', session:token,
+      }).catch(() => {});
+    }
+    if (!keepError) this._status('🎙 Hold to talk', 'Microphone off · Hold to speak');
+  }
+}
+
+if (!customElements.get('little-elf-ptt-card')) {
+  customElements.define('little-elf-ptt-card', LittleElfPttCard);
+}
+window.customCards = window.customCards || [];
+window.customCards.push({
+  type:'little-elf-ptt-card',
+  name:'Little Elf Push-to-Talk',
+  description:'Hold-to-talk microphone for the Little Elf HA RTSP bridge',
+});
