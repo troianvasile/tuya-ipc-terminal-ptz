@@ -1,0 +1,13 @@
+{
+  "domain": "little_elf_talk",
+  "name": "Little Elf RTSP Push-to-Talk",
+  "version": "0.1.0",
+  "documentation": "https://github.com/troianvasile/tuya-ipc-terminal-ptz/tree/feat/portable-ha-multiregion",
+  "issue_tracker": "https://github.com/troianvasile/tuya-ipc-terminal-ptz/issues",
+  "codeowners": [],
+  "dependencies": [
+    "websocket_api"
+  ],
+  "requirements": [],
+  "iot_class": "local_push"
+}
