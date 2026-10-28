@@ -17,6 +17,7 @@ fi
 
 TARGET="$CONFIG/custom_components/little_elf_talk"
 CARD="$CONFIG/www/little-elf-ptt-card.js"
+PROCESSOR="$CONFIG/www/little-elf-talk-processor.js"
 mkdir -p "$(dirname "$TARGET")" "$(dirname "$CARD")"
 
 STAMP="$(date -u +%Y%m%d-%H%M%S)"
@@ -28,12 +29,17 @@ if [ -e "$CARD" ]; then
   cp -p "$CARD" "${CARD}.backup-$STAMP"
   echo "Backed up Lovelace card to ${CARD}.backup-$STAMP"
 fi
+if [ -e "$PROCESSOR" ]; then
+  cp -p "$PROCESSOR" "${PROCESSOR}.backup-$STAMP"
+  echo "Backed up AudioWorklet to ${PROCESSOR}.backup-$STAMP"
+fi
 
 mkdir -p "$TARGET"
 install -m 0644 "$HERE/custom_components/little_elf_talk/__init__.py" "$TARGET/__init__.py"
 install -m 0644 "$HERE/custom_components/little_elf_talk/rtsp_audio.py" "$TARGET/rtsp_audio.py"
 install -m 0644 "$HERE/custom_components/little_elf_talk/manifest.json" "$TARGET/manifest.json"
 install -m 0644 "$HERE/www/little-elf-ptt-card.js" "$CARD"
+install -m 0644 "$HERE/www/little-elf-talk-processor.js" "$PROCESSOR"
 
 echo
 echo "Files installed. NEXT:"
