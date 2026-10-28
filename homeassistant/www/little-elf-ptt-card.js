@@ -3,46 +3,8 @@
  * Audio: Web Audio -> mono 8kHz PCMU -> authenticated HA WebSocket -> RTSP.
  * No camera IPs, tokens, cloud account details, or go2rtc addresses in JS.
  */
-const LITTLE_ELF_WORKLET = `
-class LittleElfMuLawProcessor extends AudioWorkletProcessor {
-  constructor() {
-    super();
-    this.phase = 0; this.sum = 0; this.count = 0;
-    this.packet = new Uint8Array(160); this.position = 0;
-  }
-  mulaw(value) {
-    let pcm = Math.max(-32768, Math.min(32767, Math.round(value * 32767)));
-    let sign = pcm < 0 ? 0x80 : 0;
-    if (pcm < 0) pcm = -pcm;
-    pcm = Math.min(32635, pcm + 0x84);
-    let exponent = 7, mask = 0x4000;
-    while (exponent > 0 && (pcm & mask) === 0) { exponent--; mask >>= 1; }
-    let mantissa = (pcm >> (exponent + 3)) & 15;
-    return (~(sign | (exponent << 4) | mantissa)) & 255;
-  }
-  process(inputs) {
-    const samples = inputs[0]?.[0];
-    if (!samples) return true;
-    for (let i = 0; i < samples.length; ++i) {
-      this.sum += samples[i]; this.count++;
-      this.phase += 8000;
-      if (this.phase >= sampleRate) {
-        this.phase -= sampleRate;
-        const sample = this.sum / Math.max(1, this.count);
-        this.packet[this.position++] = this.mulaw(sample);
-        this.sum = 0; this.count = 0;
-        if (this.position === this.packet.length) {
-          const frame = this.packet;
-          this.port.postMessage(frame.buffer, [frame.buffer]);
-          this.packet = new Uint8Array(160); this.position = 0;
-        }
-      }
-    }
-    return true;
-  }
-}
-registerProcessor('little-elf-mulaw', LittleElfMuLawProcessor);
-`;
+// The microphone processor is served from /local/little-elf-talk-processor.js.
+// A static file avoids Blob-based AudioWorklet CSP restrictions.
 
 class LittleElfPttCard extends HTMLElement {
   constructor() {
@@ -169,14 +131,11 @@ class LittleElfPttCard extends HTMLElement {
       }
       this._session = token;
 
-      const blob = new Blob([LITTLE_ELF_WORKLET], {type:'text/javascript'});
-      const url = URL.createObjectURL(blob);
-      try { await context.audioWorklet.addModule(url); }
-      finally { URL.revokeObjectURL(url); }
+      await context.audioWorklet.addModule('/local/little-elf-talk-processor.js?v=0.1.0');
       if (!this._pressed || this._generation !== generation) return;
 
       const source = context.createMediaStreamSource(mic);
-      const processor = new AudioWorkletNode(context, 'little-elf-mulaw');
+      const processor = new AudioWorkletNode(context, 'little-elf-pcmu');
       this._node = processor;
       const mute = context.createGain();
       mute.gain.value = 0;
