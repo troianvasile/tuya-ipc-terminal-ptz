@@ -39,7 +39,7 @@ print_header "TUYA IPC TERMINAL BUILD"
 
 # Get dependencies
 print_section "Getting dependencies..."
-go mod tidy
+go mod download
 
 # Verify all packages can be imported
 print_section "Verifying packages..."
@@ -84,10 +84,10 @@ echo "  ./tuya-ipc-terminal cameras shared                     # List shared cam
 
 print_section "RTSP Server Commands"
 echo "  ./tuya-ipc-terminal rtsp start --port 8554             # Start RTSP server"
-echo "  ./tuya-ipc-terminal rtsp stop                          # Stop RTSP server"
-echo "  ./tuya-ipc-terminal rtsp status                        # Show server status"
+echo "  # To stop a systemd-managed RTSP server: sudo systemctl stop tuya-ipc-rtsp.service"
+echo "  # To check a systemd-managed RTSP server: sudo systemctl status tuya-ipc-rtsp.service"
 echo "  ./tuya-ipc-terminal rtsp list-endpoints                # List available streams"
-echo "  ./tuya-ipc-terminal rtsp restart                       # Restart RTSP server"
+echo "  # To restart a systemd-managed RTSP server: sudo systemctl restart tuya-ipc-rtsp.service"
 
 print_section "Available Regions"
 echo "  eu-central    Central Europe     (protect-eu.ismartlife.me)"
@@ -185,7 +185,7 @@ echo ""
 echo "❌ RTSP stream not working:"
 echo "   → Check server status: ./tuya-ipc-terminal rtsp status"
 echo "   → Verify endpoints: ./tuya-ipc-terminal rtsp list-endpoints"
-echo "   → Try restarting: ./tuya-ipc-terminal rtsp restart"
+echo "   → If using systemd: sudo systemctl restart tuya-ipc-rtsp.service"
 echo ""
 
 echo "❌ Country code not found during password login:"
