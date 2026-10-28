@@ -47,14 +47,47 @@ Home Assistant still needs network connectivity to the RTSP listener for video
 and PTT. See [existing PTT install](README.md) for the separate microphone
 card and PCMU/8000 restrictions.
 
+## QR login and camera list inside Home Assistant (experimental)
+
+The native integration now includes an admin-only WebSocket proxy, plus a
+Lovelace management card. **This is not yet a custom panel inside Devices &
+services.** Installation starts there, but the management UI lives on a dashboard.
+
+1. After configuring Tuya IPC Bridge in **Settings → Devices & services**,
+   locate the integration config entry's ID in Home Assistant's integration
+   diagnostics/configuration metadata. This manual ID step will be removed as
+   the installation UX improves.
+2. Register `/local/tuya-bridge-manager.js` as a **JavaScript module** resource
+   under Dashboards → Resources.
+3. Add a manual card to a dashboard restricted to administrators:
+
+   ```yaml
+   type: custom:tuya-bridge-manager
+   entry_id: REPLACE_WITH_HA_CONFIG_ENTRY_ID
+   ```
+
+4. Open the dashboard as an HA administrator. The card requests bridge status
+   and discovered cameras through the HA backend. Choose region and email,
+   select **Start QR login**, scan via Tuya Smart/Smart Life's built-in scanner.
+   The QR image is relayed through HA; the bridge username/password remain
+   server-side. The management API also remains accessible to the standalone
+   SSH-tunnel UI.
+
+**Important:** Hiding a dashboard from nonadmins is not an authorization
+boundary. The backend enforces `connection.user.is_admin` on every management
+command. A browser cannot call the bridge directly with HA-stored credentials.
+
+The private bridge management address must be reachable from HA. By default
+Docker maps it to host-local 127.0.0.1:8788, so HA on a different host
+needs private networking or a restricted HTTPS reverse proxy.
+
 ## Current development stage
 
-This initial native HA integration provides the config flow and status entities,
-**not yet** full Tuya QR login or camera management within HA. QR login is
-available in the private bridge UI (through SSH tunneling), and the existing
-Go PTT/PTZ features remain separate. An authenticated HA-backed account UI
-is the next implementation stage. We do not claim Supervisor-equivalent
-onboarding until it has been built and physically tested.
+The branch now includes a basic HA management dashboard for QR login and a
+read-only camera list. It is **not yet** an automatically discovered device
+management experience or a native Settings panel. Camera setup, PTT and PTZ
+still require their respective integration steps. Fresh-install validation,
+UI usability improvements and regression tests remain pending.
 
 ## Security and troubleshooting
 
