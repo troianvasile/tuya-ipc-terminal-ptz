@@ -140,7 +140,7 @@ cards:
 
 The camera argument is the **discovered Tuya display name or device ID** (not the HA PTT alias). PTZ uses a reverse-engineered vendor endpoint; test short movements and keep its path clear.
 
-To control PTZ from **another HA host**, launch the separately configured `./tuya-ipc-terminal ptz serve` companion (binds `127.0.0.1:8787` by default) with a secret bearer token. Configure HTTPS/VPN/private routing, then merge [`homeassistant/ptz-rest-command.yaml.example`](homeassistant/ptz-rest-command.yaml.example) and pass `camera` / `direction` in the Lovelace button. **Do not run the companion openly over HTTP on the internet.** See [complete PTZ instructions](docs/PORTABLE_HOME_ASSISTANT_SETUP.md#optional-ptz-for-home-assistant).
+To control PTZ from **another HA host**, launch the separately configured `./tuya-ipc-terminal ptz serve` companion (binds `127.0.0.1:8787` by default) with a secret bearer token. Configure HTTPS/VPN/private routing, then merge [`homeassistant/ptz-rest-command.yaml.example`](homeassistant/ptz-rest-command.yaml.example) and pass `camera` / `direction` in the Lovelace button. **Do not run the companion openly over HTTP on the internet.** See [complete PTZ instructions](docs/PORTABLE_HOME_ASSISTANT_SETUP.md#7-optional-ptz-for-home-assistant).
 
 ## Commands and files
 
