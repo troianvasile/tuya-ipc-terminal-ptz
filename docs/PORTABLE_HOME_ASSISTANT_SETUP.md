@@ -1,6 +1,6 @@
 # Portable Home Assistant installation: current status and guide
 
-> **Status: Go RTSP bridge is reusable; the complete Home Assistant PTT integration is NOT yet published in this repository.**
+> **Status: portable Home Assistant PTT integration is now included under `homeassistant/` as an UNVALIDATED preview.** The working private HA prototype is not automatically overwritten; validate on a spare HA instance before a release.
 > The validated Go source is on the `fix/ptt-rearm-sd-lifecycle` branch. Do not claim turnkey or universal device support until the HA components are added and a clean-room installation passes.
 
 ## Validated in the reference installation (2026-10-28)
@@ -20,15 +20,26 @@ These tests **do not** establish that all Tuya models, firmware versions, region
 - `cmd/ptz/`: optional PTZ CLI. **Its current implementation explicitly requires the EU server `protect-eu.ismartlife.me`**, so don't describe PTZ as multi-region.
 - Tests for talkback and WebRTC idle shutdown.
 
-## What must still be published to make a repeatable HA install
+## Portable Home Assistant preview
 
-1. The tested Home Assistant custom integration files currently installed as `custom_components/little_elf_talk/`, including a `manifest.json`, WebSocket handler, config requirements and a way to configure the RTSP/go2rtc address.
-2. The tested custom Lovelace card `little-elf-ptt-card.js` plus resource-registration instructions and tested microphone/browser requirements.
-3. A generic, authenticated PTZ adapter/REST command implementation (optional). The reference dashboard uses `rest_command.little_elf_ptz`, which is **not** implemented by this repository.
-4. Clean-room installation testing on a fresh Home Assistant system, **including a separate-machine HA instance**, permissions, network boundaries, and removal/reinstallation.
-5. CI and release packaging for both Go and HA; merge reviewed changes to default branch only after verification.
+This branch now includes:
+- `homeassistant/custom_components/little_elf_talk/`: YAML-configured authenticated WebSocket sender and async RTSP PCMU backchannel.
+- `homeassistant/www/little-elf-ptt-card.js`: browser push-to-talk capture using AudioWorklet.
+- `homeassistant/install.sh`: file-only installer with automatic backups.
+- `homeassistant/configuration.yaml.example`, `homeassistant/lovelace.yaml.example`: generic HA config and cards.
+- `homeassistant/ptz-rest-command.yaml.example`: optional PTZ dashboard action.
+- `examples/tuya-ipc-ptz.service.example`: separately launched bearer-token protected HTTP PTZ companion, default loopback.
+- CI and isolated RTSP tests.
 
-Do not copy real `.tuya-data` sessions, cookies, HA tokens, credentials, camera device IDs or private config into Git.
+**Start with [homeassistant/README.md](../homeassistant/README.md).** This is a new portable implementation and has not yet passed live testing on a second HA installation. Other Tuya models and non-EU PTZ remain unverified.
+
+## Remaining release checks
+
+1. Fresh-install HA test and browser microphone PTT on multiple cameras.
+2. Confirm WebSocket compatibility against the original private prototype.
+3. Test PTZ HTTPS/VPN companion from another HA host.
+4. Physically validate PTZ in other authenticated Tuya regions.
+5. Confirm secret protection, firewall isolation and no credentials in Git.
 
 ## Reproducible Go bridge installation (separate Linux machine or HA host)
 
@@ -69,7 +80,7 @@ Do not copy real `.tuya-data` sessions, cookies, HA tokens, credentials, camera 
 - Configure Home Assistant/go2rtc to reach `<BRIDGE_HOST>:8554` **from inside the Home Assistant/container network**; do not copy Docker gateway IP `172.17.0.1` from another machine.
 - Add the camera stream to your Home Assistant go2rtc instance as needed; example: `examples/go2rtc.yaml.example`.
 - Video/listening can be rendered through the separately installed `custom:webrtc-camera` card using `mode: mse,hls`. See `examples/lovelace-little-elf.yaml.example`.
-- The PTT card in the example is **not usable until the HA custom integration and JavaScript card have been installed**; they are currently missing from this Git repository.
+- The PTT card requires installation of the HA custom integration and JavaScript card from the `homeassistant/` directory; do not expect a standard HA RTSP camera to provide microphone talkback on its own.
 - For a camera whose displayed name is `Baby Room` but its RTSP path is `/Baby_Room`, the HA PTT identifier in the reference setup follows the RTSP path without the leading slash, while the PTZ CLI resolves the **displayed name or device ID**. A packaged HA integration must define and validate this mapping explicitly.
 - Browser microphone capture generally requires a secure browser context (HTTPS or localhost) and microphone permission; verify actual support in each target browser.
 - The current HA PTT prototype uses a Home Assistant WebSocket pipeline and go2rtc audio backchannel. It is **not** supplied by simply enabling generic Home Assistant RTSP cameras.
