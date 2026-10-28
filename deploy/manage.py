@@ -135,16 +135,17 @@ def supervise():
 def do_qr(jobid, region, email):
     job = JOBS[jobid]
     proc = None
+    killer = None
     try:
         proc = subprocess.Popen(
             ["tuya-ipc-terminal", "auth", "add", region, email, "--qr"],
             cwd="/data", env={**os.environ, "TUYA_QR_WEB": "1"},
             stdin=subprocess.PIPE, stdout=subprocess.PIPE,
             stderr=subprocess.STDOUT, text=True, bufsize=1)
-        deadline = time.monotonic() + 180
+        killer = threading.Timer(180, proc.kill)
+        killer.daemon = True
+        killer.start()
         for line in iter(proc.stdout.readline, ""):
-            if time.monotonic() > deadline:
-                raise TimeoutError("QR login timed out")
             stripped = line.strip()
             if stripped.startswith("QR_LOGIN_URL:"):
                 job["payload"] = stripped[len("QR_LOGIN_URL:"):]
@@ -165,6 +166,8 @@ def do_qr(jobid, region, email):
         LOG.warning("QR login ended: %s", type(exc).__name__)
         job["status"] = "error"
     finally:
+        if killer is not None:
+            killer.cancel()
         if proc is not None and proc.poll() is None:
             proc.kill()
             proc.wait()
