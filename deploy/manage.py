@@ -249,6 +249,19 @@ class Handler(BaseHTTPRequestHandler):
     def do_GET(self):
         if not self.check():
             return
+        if self.path == "/api/health":
+            with LOCK:
+                running = STATUS["rtsp"]
+                entries = dict(STATUS["accounts"])
+                checked = STATUS["last_check"]
+            self.reply(200, json.dumps({
+                "service": "tuya-ipc-bridge",
+                "rtsp": running,
+                "account_count": len(accounts()),
+                "accounts": entries,
+                "last_check": checked,
+            }))
+            return
         if self.path == "/":
             self.reply(200, page(), "text/html; charset=utf-8")
             return
