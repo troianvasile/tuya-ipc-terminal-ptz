@@ -98,7 +98,8 @@ def supervise():
     last_check = 0
     last_set = None
     while True:
-        current = tuple(str(f) for f in accounts())
+        # Detect reauthentication of an existing account (same filename, new session).
+        current = tuple((str(f), f.stat().st_mtime_ns) for f in accounts())
         if time.monotonic() - last_check >= CHECK_EVERY or current != last_set:
             try:
                 session_check()
