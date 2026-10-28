@@ -1,0 +1,11 @@
+# Insert under streams: in the configuration used by YOUR go2rtc instance.
+# <BRIDGE_HOST> is the reachable address from that go2rtc process/container,
+# NOT necessarily localhost and NOT a portable Docker gateway address.
+# <CAMERA_RTSP_PATH> is discovered by tuya-ipc-terminal cameras list/registry.
+# Keep the stream name consistent with the optional HA PTT adapter configuration.
+streams:
+  front_door_talk:
+    - rtsp://<BRIDGE_HOST>:8554/<CAMERA_RTSP_PATH>/sd
+
+# The experimental FFmpeg/TTS push is not validated and is not part
+# of the supported live PTT example.
