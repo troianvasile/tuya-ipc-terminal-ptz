@@ -89,7 +89,7 @@ Video and listening use a separate RTSP reader and do not need the microphone ca
 
 Go PTZ now accepts authenticated sessions for all six web hostnames in the project's available-region list: `eu-central`, `eu-east`, `us-west`, `us-east`, `china`, `india`. Hostnames are checked against an exact allowlist, so tokens/cookies cannot be forwarded to arbitrary URLs.
 
-**PTZ is confirmed on two EU cameras only.** Other regions must be physically tested. The standalone Go `ptz move` CLI is included, but the **Home Assistant PTZ REST helper is not yet packaged**; the Lovelace example intentionally contains no PTZ buttons. The browser PTT code and PTZ CLI are independent.
+**PTZ is physically confirmed on two EU cameras only.** Other regions must be physically tested. For Home Assistant on another host, an **optional** Go companion `ptz serve` exposes the PTZ CLI through a bearer-token-protected HTTP endpoint (disabled unless started explicitly). See [`../examples/tuya-ipc-ptz.service.example`](../examples/tuya-ipc-ptz.service.example) and [`ptz-rest-command.yaml.example`](ptz-rest-command.yaml.example). The latter defines the same `rest_command.little_elf_ptz` action used by the reference dashboard, with camera name and direction as inputs. Keep the companion bound to localhost behind HTTPS/VPN for remote HA, never openly exposed over HTTP. The browser PTT path and PTZ remain independent.
 
 ## Build/verification
 
