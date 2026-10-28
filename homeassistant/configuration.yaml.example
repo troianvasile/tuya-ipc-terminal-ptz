@@ -1,0 +1,15 @@
+# Merge into your existing Home Assistant configuration.yaml
+#
+# Each camera key is a LOCAL alias. It must match the PTT card's camera: key.
+# Home Assistant connects to the Go bridge on this address via its own network.
+# This is not the Tuya cloud endpoint and not the browser's IP.
+little_elf_talk:
+  admin_only: true
+  cameras:
+    front_door:
+      rtsp_url: rtsp://192.168.1.50:8554/Front_Door/sd
+    nursery:
+      rtsp_url: rtsp://192.168.1.50:8554/Nursery/sd
+
+# The bridge does not need to run on the same host as Home Assistant.
+# If HA runs in Docker, verify 192.168.1.50 is reachable from its container.
