@@ -21,6 +21,8 @@ jobs:
           go vet ./...
       - name: Validate Python syntax
         run: python3 -m py_compile deploy/manage.py
+      - name: Test standalone manager packaging
+        run: python3 -m unittest discover -s deploy/tests -p 'test_*.py' -v
       - name: Validate Compose and Docker build
         run: |
           cp deploy/.env.example deploy/.env
