@@ -1,11 +1,17 @@
-# Insert under streams: in the configuration used by YOUR go2rtc instance.
-# <BRIDGE_HOST> is the reachable address from that go2rtc process/container,
-# NOT necessarily localhost and NOT a portable Docker gateway address.
-# <CAMERA_RTSP_PATH> is discovered by tuya-ipc-terminal cameras list/registry.
-# Keep the stream name consistent with the optional HA PTT adapter configuration.
+# OPTIONAL example for a separately configured go2rtc instance used for
+# video/listening in Home Assistant. The new HA microphone PTT integration
+# does NOT require go2rtc's experimental TTS push endpoint.
+#
+# Put this under the streams: key of the go2rtc instance HA actually uses.
+# Use a bridge IP/hostname reachable from inside the go2rtc container/process.
+# Do not copy 172.17.0.1 or localhost from another installation.
+# RTSP paths come from "tuya-ipc-terminal cameras list" / cameras.json.
 streams:
-  front_door_talk:
-    - rtsp://<BRIDGE_HOST>:8554/<CAMERA_RTSP_PATH>/sd
+  front_door_video:
+    - rtsp://192.168.1.50:8554/Front_Door/sd
+  nursery_video:
+    - rtsp://192.168.1.50:8554/Nursery/sd
 
-# The experimental FFmpeg/TTS push is not validated and is not part
-# of the supported live PTT example.
+# The PTT aliases in configuration.yaml are independent of these stream
+# names. The PTT backend opens its own RTSP backchannel.
+# TTS/file injection remains unsupported.
