@@ -32,7 +32,7 @@ CAMERA_SCHEMA = vol.Schema({
 })
 CONFIG_SCHEMA = vol.Schema({
     vol.Optional(DOMAIN): vol.Schema({
-        vol.Required("cameras"): {cv.slug: CAMERA_SCHEMA},
+        vol.Required("cameras"): {vol.Match(r"^[A-Za-z][A-Za-z0-9_-]{0,63}$"): CAMERA_SCHEMA},
         vol.Optional("admin_only", default=True): cv.boolean,
     })
 }, extra=vol.ALLOW_EXTRA)
@@ -87,7 +87,7 @@ async def _watchdog(hass: HomeAssistant) -> None:
 
 @websocket_api.websocket_command({
     vol.Required("type"): f"{DOMAIN}/start",
-    vol.Required("camera"): cv.slug,
+    vol.Required("camera"): cv.string,
 })
 @websocket_api.async_response
 async def ws_start(hass: HomeAssistant, connection: Any, msg: dict) -> None:
@@ -178,9 +178,30 @@ async def ws_chunk(hass: HomeAssistant, connection: Any, msg: dict) -> None:
     connection.send_result(msg["id"])
 
 
+# Compatibility with the original working Home Assistant prototype:
+# older cards send {type:little_elf_talk/audio, camera, session, pcmu}.
+@websocket_api.websocket_command({
+    vol.Required("type"): f"{DOMAIN}/audio",
+    vol.Required("camera"): cv.string,
+    vol.Required("session"): cv.string,
+    vol.Required("pcmu"): cv.string,
+})
+@websocket_api.async_response
+async def ws_audio(hass: HomeAssistant, connection: Any, msg: dict) -> None:
+    sess: Session | None = _state(hass)["sessions"].get(msg["session"])
+    if sess is None or sess.camera != msg["camera"] or sess.owner is not connection:
+        connection.send_error(msg["id"], "not_found", "Talkback session not found")
+        return
+    await ws_chunk(
+        hass, connection,
+        {"id": msg["id"], "session": msg["session"], "audio": msg["pcmu"]},
+    )
+
+
 @websocket_api.websocket_command({
     vol.Required("type"): f"{DOMAIN}/stop",
     vol.Required("session"): cv.string,
+    vol.Optional("camera"): cv.string,
 })
 @websocket_api.async_response
 async def ws_stop(hass: HomeAssistant, connection: Any, msg: dict) -> None:
@@ -207,6 +228,7 @@ async def async_setup(hass: HomeAssistant, config: dict) -> bool:
     }
     websocket_api.async_register_command(hass, ws_start)
     websocket_api.async_register_command(hass, ws_chunk)
+    websocket_api.async_register_command(hass, ws_audio)
     websocket_api.async_register_command(hass, ws_stop)
     task = hass.async_create_task(_watchdog(hass))
 
