@@ -58,6 +58,7 @@ type CameraStream struct {
 	clients      map[string]*RTSPClient
 	mutex        sync.RWMutex
 	connecting   bool
+	startLaunched bool // one WebRTC start goroutine per camera stream
 	active       bool
 	lastActivity time.Time
 
@@ -477,8 +478,9 @@ func (cs *CameraStream) AddClient(client *RTSPClient) {
 	cs.clients[client.session] = client
 	cs.lastActivity = time.Now()
 
-	// Start stream if not active
-	if !cs.active {
+	// Start once even when several clients attach during negotiation.
+	if !cs.active && !cs.startLaunched {
+		cs.startLaunched = true
 		go cs.startStream()
 	}
 }
@@ -538,6 +540,7 @@ func (cs *CameraStream) startStream() {
 	}
 
 	cs.mutex.Lock()
+	cs.startLaunched = false
 	cs.connecting = false
 	cs.active = true
 	cs.mutex.Unlock()
@@ -558,6 +561,7 @@ func (cs *CameraStream) stopStreamInternal() {
 	wasActive := cs.active
 	cs.active = false
 	cs.connecting = false
+	cs.startLaunched = false
 
 	// Cancel any pending shutdown
 	if cs.shutdownTimer != nil {
