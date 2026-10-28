@@ -52,6 +52,7 @@ func NewPTZCmd() *cobra.Command {
 	_ = move.MarkFlagRequired("camera")
 	_ = move.MarkFlagRequired("direction")
 	cmd.AddCommand(move)
+	cmd.AddCommand(newServeCmd())
 	var stopDevice string
 	stop := &cobra.Command{Use: "stop", Short: "Stop moving a camera", RunE: func(cmd *cobra.Command, args []string) error {
 		client, host, id, err := getClient(stopDevice)
