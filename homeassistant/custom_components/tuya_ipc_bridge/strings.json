@@ -1,0 +1,21 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Connect to Tuya IPC Bridge",
+        "description": "Connect to the standalone bridge's private management address. On Home Assistant Container, 127.0.0.1 means the HA container, not the bridge host.",
+        "data": {
+          "url": "Bridge management URL",
+          "username": "Bridge username",
+          "password": "Bridge password"
+        }
+      }
+    },
+    "error": {
+      "cannot_connect": "Cannot authenticate to or reach the bridge. Check its host address, port, firewall and credentials."
+    },
+    "abort": {
+      "already_configured": "This bridge is already configured."
+    }
+  }
+}
