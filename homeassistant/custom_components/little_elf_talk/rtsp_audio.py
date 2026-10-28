@@ -81,11 +81,9 @@ class RtspPcmuBackchannel:
             if not match:
                 raise RtspError("Malformed interleaved RTP transport")
             self.channel = int(match.group(1))
-            status, _, _ = await self._request(
-                "PLAY", self.url, {"Session": self.session}
-            )
-            if status != 200:
-                raise RtspError(f"PLAY returned {status}")
+            # The Tuya Go bridge accepts RTSP backchannel RTP immediately
+            # after SETUP. Do not issue PLAY here: it can already stream
+            # interleaved video/audio at this point, ahead of a PLAY response.
             # The bridge may forward camera media on the same TCP socket.
             # Drain it continuously; otherwise the remote socket can stall.
             self._rx_task = asyncio.create_task(self._drain_incoming())
