@@ -1,0 +1,24 @@
+# Example cards for ONE camera inside a Home Assistant Lovelace view.
+# This is a cards list, not a full dashboard.
+# Prerequisites:
+# 1) working bridge and reachable RTSP URL
+# 2) custom:webrtc-camera installed
+# 3) the currently UNPUBLISHED little_elf_talk HA integration and
+#    little-elf-ptt-card.js installed/registered as a Lovelace resource
+# Replace placeholders for the target installation.
+#
+# RTSP URL host must be reachable from HA/go2rtc, including if HA is Dockerized.
+# Camera ID for PTT follows the RTSP camera path used in the validated prototype,
+# but the packaged HA integration should make this configurable explicitly.
+type: vertical-stack
+cards:
+  - type: custom:webrtc-camera
+    url: rtsp://<BRIDGE_HOST>:8554/<CAMERA_RTSP_PATH>/sd
+    mode: mse,hls
+    media: video,audio
+    ui: true
+  - type: custom:little-elf-ptt-card
+    camera: <CAMERA_RTSP_PATH>
+
+# Optional PTZ is NOT shown here because the HA REST helper is currently
+# private/unpublished. Its CLI counterpart is in cmd/ptz, EU region only.
