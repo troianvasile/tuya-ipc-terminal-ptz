@@ -15,7 +15,7 @@ import time
 import uuid
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
-from urllib.parse import parse_qs
+from urllib.parse import parse_qs, urlsplit
 from urllib.request import Request, urlopen
 
 import qrcode
@@ -288,6 +288,12 @@ class Handler(BaseHTTPRequestHandler):
     def do_POST(self):
         if not self.check():
             return
+        origin = self.headers.get("Origin", "")
+        if origin:
+            parsed = urlsplit(origin)
+            if parsed.netloc != self.headers.get("Host", "") or parsed.scheme not in ("http", "https"):
+                self.reply(403, '{"error":"cross-origin request denied"}')
+                return
         if self.path != "/api/qr":
             self.reply(404, '{"error":"not found"}')
             return
