@@ -1,24 +1,32 @@
-# Example cards for ONE camera inside a Home Assistant Lovelace view.
-# This is a cards list, not a full dashboard.
-# Prerequisites:
-# 1) working bridge and reachable RTSP URL
-# 2) custom:webrtc-camera installed
-# 3) the currently UNPUBLISHED little_elf_talk HA integration and
-#    little-elf-ptt-card.js installed/registered as a Lovelace resource
-# Replace placeholders for the target installation.
+# Portable Lovelace view example (ONE camera); integrate into any dashboard.
 #
-# RTSP URL host must be reachable from HA/go2rtc, including if HA is Dockerized.
-# Camera ID for PTT follows the RTSP camera path used in the validated prototype,
-# but the packaged HA integration should make this configurable explicitly.
+# Requires:
+# - A reachable Go bridge (replace its address and discovered RTSP path below)
+# - AlexxIT WebRTC Camera for video/listening
+# - homeassistant/custom_components/little_elf_talk/ installed and configured
+# - Both homeassistant/www/ JS files installed
+# - /local/little-elf-ptt-card.js?v=0.1.0 registered as a JS module
+#
+# The PTT camera is a LOCAL alias from configuration.yaml
+# (little_elf_talk.cameras.front_door), not the RTSP path or Tuya device name.
+# PTT requires a browser microphone in an HTTPS / localhost secure context.
 type: vertical-stack
 cards:
   - type: custom:webrtc-camera
-    url: rtsp://<BRIDGE_HOST>:8554/<CAMERA_RTSP_PATH>/sd
+    url: rtsp://192.168.1.50:8554/Front_Door/sd
     mode: mse,hls
     media: video,audio
     ui: true
   - type: custom:little-elf-ptt-card
-    camera: <CAMERA_RTSP_PATH>
+    camera: front_door
 
-# Optional PTZ is NOT shown here because the HA REST helper is currently
-# private/unpublished. Its CLI counterpart is in cmd/ptz, EU region only.
+# Optional PTZ: install the separately authenticated ptz serve companion,
+# configure homeassistant/ptz-rest-command.yaml.example, then add a button:
+# - type: button
+#   name: Pan left
+#   tap_action:
+#     action: perform-action
+#     perform_action: rest_command.little_elf_ptz
+#     data:
+#       camera: Front Door    # Tuya display name or ID, NOT the PTT alias
+#       direction: LEFT
