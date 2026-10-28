@@ -1,0 +1,31 @@
+# Optional systemd companion. Does NOT replace the RTSP bridge service.
+# Replace SERVICE_USER and INSTALL_DIR and create the token file as mode 0600.
+#
+# Example (run locally yourself, do NOT check secret into Git):
+#   sudo install -m 0600 /dev/null /etc/little-elf-ptz.env
+#   printf 'LITTLE_ELF_PTZ_TOKEN=%s\n' "$(openssl rand -hex 24)" |
+#     sudo tee /etc/little-elf-ptz.env >/dev/null
+#
+# Keep 127.0.0.1 as the bind address and put HTTPS reverse proxy or VPN in
+# front if HA runs on another machine. Never publish PTZ plain HTTP publicly.
+[Unit]
+Description=Little Elf authenticated PTZ HTTP companion
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=simple
+User=SERVICE_USER
+WorkingDirectory=INSTALL_DIR
+EnvironmentFile=/etc/little-elf-ptz.env
+ExecStart=INSTALL_DIR/tuya-ipc-terminal ptz serve --listen 127.0.0.1:8787
+Restart=on-failure
+RestartSec=10
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=false
+ReadWritePaths=INSTALL_DIR
+LimitNOFILE=4096
+
+[Install]
+WantedBy=multi-user.target
