@@ -2,6 +2,14 @@
 
 An independently maintained derivative of Tuya IPC Terminal that adds camera pan/tilt control using the authenticated Little Elf / Tuya IPC web API, while retaining the RTSP bridge and stability improvements.
 
+## Home Assistant two-way audio / reproducibility status
+
+The Go RTSP bridge includes working audio backchannel fixes on branch `fix/ptt-rearm-sd-lifecycle` (tested with two Little Elf cameras, 2026-10-28), including SD handshake, speaker rearm, RTP continuity and idle bridge cleanup.
+
+**The full Home Assistant PTT stack is not yet shipped in this repository.** The tested `custom_components/little_elf_talk` backend, `little-elf-ptt-card.js` and the optional Home Assistant PTZ REST helper remain external/private. Installing just this Go project and a standard RTSP camera will **not** give you the same browser push-to-talk experience. PTZ CLI is currently verified and restricted to the Tuya EU server. TTS audio injection is not verified.
+
+See **[Portable Home Assistant setup, examples and remaining tasks](docs/PORTABLE_HOME_ASSISTANT_SETUP.md)**. Do not advertise general Tuya camera/model compatibility without independent tests.
+
 ## Project lineage and attribution
 
 - Original project: [seydx/tuya-ipc-terminal](https://github.com/seydx/tuya-ipc-terminal) — WebRTC-to-RTSP bridge.
@@ -39,7 +47,7 @@ PTZ was physically verified on two Little Elf cameras using the EU web endpoint.
 > Upstream has been inactive for over a year, so fixes live here.
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
-[![Go Version](https://img.shields.io/badge/Go-1.21%2B-blue.svg)](https://golang.org/)
+[![Go Version](https://img.shields.io/badge/Go-1.23%2B-blue.svg)](https://golang.org/)
 [![Build Status](https://img.shields.io/badge/Build-Passing-brightgreen.svg)]()
 
 ## Fixes in this fork
