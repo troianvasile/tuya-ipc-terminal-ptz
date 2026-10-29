@@ -2,7 +2,6 @@
 from __future__ import annotations
 
 import asyncio
-import re
 import secrets
 import struct
 from urllib.parse import urlsplit
@@ -25,7 +24,7 @@ class RtspPcmuBackchannel:
             or parsed.query or parsed.fragment
         ):
             raise ValueError("Expected a plain RTSP URL without credentials")
-        self.url = url
+        self.url = url.rstrip("/")
         self.host = parsed.hostname
         self.port = parsed.port or 554
         self.reader: asyncio.StreamReader | None = None
@@ -45,50 +44,29 @@ class RtspPcmuBackchannel:
             self.reader, self.writer = await asyncio.wait_for(
                 asyncio.open_connection(self.host, self.port), timeout=7
             )
-            status, _, body = await self._request(
+            status, _, _ = await self._request(
                 "DESCRIBE", self.url, {"Accept": "application/sdp"}
             )
             if status != 200:
                 raise RtspError(f"DESCRIBE returned {status}")
-            control, self._payload_type = self._backchannel_from_sdp(
-                body.decode("utf-8", "replace")
-            )
-            setup_url = control if control.startswith("rtsp://") else (
-                self.url.rstrip("/") + "/" + control.lstrip("/")
-            )
             status, headers, _ = await self._request(
-                "SETUP", setup_url,
+                "SETUP", f"{self.url}/backchannel",
                 {"Transport": "RTP/AVP/TCP;unicast;interleaved=4-5"},
             )
             if status != 200:
                 raise RtspError(f"SETUP returned {status}")
-            if not headers.get("session"):
+            session = headers.get("session", "").split(";", 1)[0]
+            if not session:
                 raise RtspError("RTSP SETUP did not return a Session header")
-            match = re.search(r"interleaved=(\d+)-(\d+)", headers.get("transport", ""), re.I)
-            if not match:
+            if "interleaved=4-5" not in headers.get("transport", ""):
                 raise RtspError("Server did not negotiate interleaved RTP")
-            self.channel = int(match.group(1))
+            status, _, _ = await self._request("PLAY", self.url, {"Session": session})
+            if status != 200:
+                raise RtspError(f"PLAY returned {status}")
             self._rx_task = asyncio.create_task(self._drain_incoming())
         except BaseException:
             await self.close()
             raise
-
-    @staticmethod
-    def _backchannel_from_sdp(sdp: str) -> tuple[str, int]:
-        for section in sdp.replace("\r", "").split("\nm=")[1:]:
-            lines = section.strip().split("\n")
-            if not lines or not lines[0].startswith("audio "):
-                continue
-            control = next((line[10:] for line in lines[1:]
-                            if line.startswith("a=control:") and "backchannel" in line), None)
-            if not control:
-                continue
-            for fmt in lines[0].split()[3:]:
-                codec = f"a=rtpmap:{fmt} PCMU/8000"
-                if fmt == "0" or any(line.upper() == codec.upper() for line in lines[1:]):
-                    return control, int(fmt)
-            raise RtspError("Camera RTSP backchannel is not PCMU/8000")
-        raise RtspError("No RTSP audio backchannel advertised")
 
     async def _request(self, method: str, url: str, headers: dict[str, str] | None = None) -> tuple[int, dict[str, str], bytes]:
         if self.reader is None or self.writer is None:
@@ -137,20 +115,19 @@ class RtspPcmuBackchannel:
     async def write_pcmu(self, samples: bytes) -> None:
         if self._closed or self.writer is None:
             raise RtspError("Talkback session is closed")
-        if not samples or len(samples) > 640:
-            raise ValueError("Expected 1-640 PCMU samples")
+        if len(samples) != 160:
+            raise ValueError("Expected one 20 ms PCMU frame (160 bytes)")
         packet = struct.pack(
-            "!BBHII", 0x80, self._payload_type & 0x7F,
+            "!BBHII", 0x80, (0x80 if self._packets == 0 else 0) | self._payload_type,
             self._sequence, self._timestamp, self._ssrc,
         ) + samples
         self.writer.write(
             b"$" + bytes([self.channel]) + struct.pack("!H", len(packet)) + packet
         )
         self._sequence = (self._sequence + 1) & 0xFFFF
-        self._timestamp = (self._timestamp + len(samples)) & 0xFFFFFFFF
+        self._timestamp = (self._timestamp + 160) & 0xFFFFFFFF
         self._packets += 1
-        if self._packets % 5 == 0:
-            await asyncio.wait_for(self.writer.drain(), timeout=2)
+        await asyncio.wait_for(self.writer.drain(), timeout=1)
 
     async def close(self) -> None:
         if self._closed:

@@ -7,7 +7,7 @@ import binascii
 import logging
 import secrets
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any
 
 import voluptuous as vol
@@ -39,6 +39,10 @@ class TalkbackSession:
     last_audio: float
     started_at: float
     packet_count: int = 0
+    audio_queue: asyncio.Queue[bytes] = field(
+        default_factory=lambda: asyncio.Queue(maxsize=12)
+    )
+    sender_task: asyncio.Task[None] | None = None
 
 
 def _state(hass: HomeAssistant) -> dict[str, Any]:
@@ -54,10 +58,25 @@ async def _end_session(hass: HomeAssistant, token: str) -> None:
     if session is None:
         return
     session.owner.subscriptions.pop(session.start_message_id, None)
+    if session.sender_task and session.sender_task is not asyncio.current_task():
+        session.sender_task.cancel()
+        await asyncio.gather(session.sender_task, return_exceptions=True)
     try:
         await session.rtsp.close()
     except (OSError, asyncio.TimeoutError, ValueError):
         _LOGGER.warning("Could not close talkback session")
+
+
+async def _send_audio(hass: HomeAssistant, session: TalkbackSession) -> None:
+    try:
+        while True:
+            audio = await session.audio_queue.get()
+            await session.rtsp.write_pcmu(audio)
+    except asyncio.CancelledError:
+        raise
+    except (RtspError, OSError, asyncio.TimeoutError, ValueError):
+        _LOGGER.warning("Talkback RTSP backchannel disconnected")
+        await _end_session(hass, session.token)
 
 
 async def _watchdog(hass: HomeAssistant) -> None:
@@ -117,6 +136,9 @@ async def ws_start(hass: HomeAssistant, connection: Any, msg: dict) -> None:
         started_at, started_at,
     )
     state["sessions"][token] = session
+    session.sender_task = hass.async_create_background_task(
+        _send_audio(hass, session), f"{DOMAIN}_talkback_sender"
+    )
 
     @callback
     def on_disconnect() -> None:
@@ -131,8 +153,8 @@ async def ws_start(hass: HomeAssistant, connection: Any, msg: dict) -> None:
     vol.Required("session"): cv.string,
     vol.Required("audio"): cv.string,
 })
-@websocket_api.async_response
-async def ws_chunk(hass: HomeAssistant, connection: Any, msg: dict) -> None:
+@callback
+def ws_chunk(hass: HomeAssistant, connection: Any, msg: dict) -> None:
     """Forward one bounded PCMU audio payload to its session."""
     session = _state(hass)["sessions"].get(msg["session"])
     if session is None or session.owner is not connection:
@@ -146,25 +168,23 @@ async def ws_chunk(hass: HomeAssistant, connection: Any, msg: dict) -> None:
     except (binascii.Error, ValueError):
         connection.send_error(msg["id"], "invalid_format", "Invalid base64 audio")
         return
-    if not 1 <= len(audio) <= 640:
-        connection.send_error(msg["id"], "invalid_format", "Expected PCMU samples")
+    if len(audio) != 160:
+        connection.send_error(msg["id"], "invalid_format", "Expected one 20 ms PCMU frame")
         return
-    try:
-        await session.rtsp.write_pcmu(audio)
-        session.last_audio = time.monotonic()
-        session.packet_count += 1
-        if session.packet_count % 50 == 0:
-            elapsed = session.last_audio - session.started_at
-            _LOGGER.info(
-                "Talkback diagnostics: accepted %d PCMU packets; latest packet is %d bytes over %.2f seconds",
-                session.packet_count,
-                len(audio),
-                elapsed,
-            )
-    except (RtspError, OSError, asyncio.TimeoutError, ValueError):
-        await _end_session(hass, session.token)
-        connection.send_error(msg["id"], "unavailable", "RTSP backchannel disconnected")
-        return
+    if session.audio_queue.full():
+        try:
+            session.audio_queue.get_nowait()
+        except asyncio.QueueEmpty:
+            pass
+    session.audio_queue.put_nowait(audio)
+    session.last_audio = time.monotonic()
+    session.packet_count += 1
+    if session.packet_count % 50 == 0:
+        elapsed = session.last_audio - session.started_at
+        _LOGGER.info(
+            "Talkback diagnostics: accepted %d PCMU frames over %.2f seconds",
+            session.packet_count, elapsed,
+        )
     connection.send_result(msg["id"])
 
 

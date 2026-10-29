@@ -17,8 +17,6 @@ class LittleElfPttCard extends HTMLElement {
     this._stream = null;
     this._ctx = null;
     this._node = null;
-    this._audioQueue = [];
-    this._sendTimer = null;
     this._testTimer = null;
     this._testSession = null;
     this._blur = () => this._stop();
@@ -126,17 +124,7 @@ class LittleElfPttCard extends HTMLElement {
         mic.getTracks().forEach(track => track.stop()); return;
       }
       this._stream = mic;
-
-      const response = await this._hass.connection.sendMessagePromise(this._message('start'));
-      const token = response?.session;
-      if (!token) throw new Error('Talkback backend returned no session');
-      if (!this._pressed || this._generation !== generation) {
-        this._hass.connection.sendMessagePromise(this._message('stop', {session:token})).catch(() => {});
-        return;
-      }
-      this._session = token;
-
-      await context.audioWorklet.addModule('/local/little-elf-talk-processor.js?v=09450d4');
+      await context.audioWorklet.addModule('/local/little-elf-talk-processor.js?v=ptt-vps-20ms-1');
       if (!this._pressed || this._generation !== generation) return;
 
       const source = context.createMediaStreamSource(mic);
@@ -147,25 +135,33 @@ class LittleElfPttCard extends HTMLElement {
       source.connect(processor);
       processor.connect(mute);
       mute.connect(context.destination);
+      let token = null;
       processor.port.onmessage = event => {
         if (!this._pressed || this._session !== token || !this._hass?.connection) return;
         const bytes = new Uint8Array(event.data);
         let binary = '';
         for (const byte of bytes) binary += String.fromCharCode(byte);
-        // Tuya's G.711u IPC talkback requires 320-byte, 40-ms frames.
-        if (this._audioQueue.length >= 13) this._audioQueue.shift();
-        this._audioQueue.push(btoa(binary));
-      };
-      this._sendTimer = window.setInterval(() => {
-        if (!this._pressed || this._session !== token || !this._hass?.connection) return;
-        const audio = this._audioQueue.shift();
-        if (!audio) return;
+        // Match the working VPS path: send each AudioWorklet 20 ms PCMU frame
+        // immediately, rather than adding a second browser timer/queue.
         try {
-          this._hass.connection.sendMessage(this._message('chunk', {session:token, audio}));
+          this._hass.connection.sendMessage(this._message('chunk', {
+            session: token, audio: btoa(binary),
+          }));
         } catch (_) {
           this._stop();
         }
-      }, 40);
+      };
+      // Match the working VPS flow: make the microphone graph live before
+      // negotiating RTSP, so the capture clock is stable when the first RTP
+      // frame reaches the bridge.
+      const response = await this._hass.connection.sendMessagePromise(this._message('start'));
+      token = response?.session;
+      if (!token) throw new Error('Talkback backend returned no session');
+      if (!this._pressed || this._generation !== generation) {
+        this._hass.connection.sendMessagePromise(this._message('stop', {session:token})).catch(() => {});
+        return;
+      }
+      this._session = token;
       this._status('🔴 Talking — release to stop', `${context.sampleRate} Hz PCMU · Sending microphone`, true);
     } catch (error) {
       if (this._generation === generation) {
@@ -176,7 +172,7 @@ class LittleElfPttCard extends HTMLElement {
   }
 
   _toneFrame() {
-    const frame = new Uint8Array(320);
+    const frame = new Uint8Array(160);
     for (let index = 0; index < frame.length; index++) {
       const sample = Math.sin(2 * Math.PI * 1000 * index / 8000) * 0.2;
       frame[index] = LittleElfPttCard._encodePCMU(sample);
@@ -210,7 +206,7 @@ class LittleElfPttCard extends HTMLElement {
       );
       send();
       this._status('🔊 Testing speaker…', 'Three-second 1 kHz PCMU reference tone', true);
-      this._testTimer = window.setInterval(send, 40);
+      this._testTimer = window.setInterval(send, 20);
       window.setTimeout(() => this._stopSpeakerTest(), 3000);
     } catch (error) {
       this._status('🎙 Hold to talk', String(error?.message || error), false);
@@ -232,9 +228,6 @@ class LittleElfPttCard extends HTMLElement {
     if (!this._pressed && !this._stream && !this._ctx && !this._session) return;
     this._pressed = false;
     this._stopSpeakerTest();
-    if (this._sendTimer) window.clearInterval(this._sendTimer);
-    this._sendTimer = null;
-    this._audioQueue = [];
     this._generation++;
     const token = this._session;
     this._session = null;
