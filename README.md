@@ -2,9 +2,11 @@
 
 A community-maintained Go bridge for compatible Tuya/Little Elf IP cameras, with RTSP video/audio, an RTSP audio backchannel, browser push-to-talk (PTT) for Home Assistant, and optional PTZ controls. This is not an official Tuya or Home Assistant project.
 
-**[Complete step-by-step installation](docs/PORTABLE_HOME_ASSISTANT_SETUP.md)** · **[Home Assistant setup](homeassistant/README.md)** · **[Troubleshooting](docs/TROUBLESHOOTING.md)** · **[Examples](examples/)**
+**[Experimental Supervisor-free Docker setup](deploy/README.md)** · **[HA native configuration integration](homeassistant/BRIDGE_INTEGRATION.md)** · **[Complete step-by-step installation](docs/PORTABLE_HOME_ASSISTANT_SETUP.md)** · **[Home Assistant setup](homeassistant/README.md)** · **[Troubleshooting](docs/TROUBLESHOOTING.md)** · **[Examples](examples/)**
 
 > **Support status (October 2026):** The underlying Go RTSP/PTT lifecycle fixes were physically verified with two Little Elf cameras. The newly packaged Home Assistant frontend/backend and optional HTTP PTZ service have passing automated checks, but have **not yet passed an independent fresh-install / real-camera test**. Publishing on `main` makes the source available; it does not certify all Tuya cameras, firmware, regions or Home Assistant environments.
+
+> **Experimental branch update:** The standalone Docker bridge now has a QR-login management UI and an initial HA configuration-flow integration with status entities. The native HA flow **does not yet manage Tuya logins, cameras or PTZ in-app**; use the standalone bridge UI for authentication. See [the HA onboarding guide](homeassistant/BRIDGE_INTEGRATION.md). This does not replace a production instance.
 
 ## Features and compatibility
 

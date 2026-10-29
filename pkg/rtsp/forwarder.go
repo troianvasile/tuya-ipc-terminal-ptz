@@ -3,6 +3,7 @@ package rtsp
 import (
 	"fmt"
 	"net"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -77,7 +78,45 @@ func NewRTPForwarder() *RTPForwarder {
 	}
 }
 
-func (rf *RTPForwarder) AddUDPClient(sessionID string, videoRTPPort, audioRTPPort int) error {
+func udpAddress(host string, port int) (*net.UDPAddr, error) {
+	if host == "" || port < 1 || port > 65535 {
+		return nil, fmt.Errorf("invalid UDP client address")
+	}
+
+	return net.ResolveUDPAddr("udp", net.JoinHostPort(host, strconv.Itoa(port)))
+}
+
+func updateUDPConnection(conn **net.UDPConn, currentAddr **net.UDPAddr, host string, port int) error {
+	if port == 0 {
+		if *conn != nil {
+			(*conn).Close()
+		}
+		*conn = nil
+		*currentAddr = nil
+		return nil
+	}
+
+	address, err := udpAddress(host, port)
+	if err != nil {
+		return err
+	}
+	if *conn != nil && *currentAddr != nil && (*currentAddr).String() == address.String() {
+		return nil
+	}
+
+	newConn, err := net.DialUDP("udp", nil, address)
+	if err != nil {
+		return err
+	}
+	if *conn != nil {
+		(*conn).Close()
+	}
+	*conn = newConn
+	*currentAddr = address
+	return nil
+}
+
+func (rf *RTPForwarder) AddUDPClient(sessionID, clientHost string, videoRTPPort, audioRTPPort int) error {
 	rf.mutex.Lock()
 	defer rf.mutex.Unlock()
 
@@ -88,19 +127,11 @@ func (rf *RTPForwarder) AddUDPClient(sessionID string, videoRTPPort, audioRTPPor
 		client.audioRTPPort = audioRTPPort
 		client.lastActivity = time.Now()
 
-		// Create new connections if needed
-		if videoRTPPort > 0 && client.videoConn == nil {
-			videoAddr, _ := net.ResolveUDPAddr("udp", fmt.Sprintf("localhost:%d", videoRTPPort))
-			videoConn, _ := net.DialUDP("udp", nil, videoAddr)
-			client.videoAddr = videoAddr
-			client.videoConn = videoConn
+		if err := updateUDPConnection(&client.videoConn, &client.videoAddr, clientHost, videoRTPPort); err != nil {
+			return fmt.Errorf("failed to update video UDP connection: %w", err)
 		}
-
-		if audioRTPPort > 0 && client.audioConn == nil {
-			audioAddr, _ := net.ResolveUDPAddr("udp", fmt.Sprintf("localhost:%d", audioRTPPort))
-			audioConn, _ := net.DialUDP("udp", nil, audioAddr)
-			client.audioAddr = audioAddr
-			client.audioConn = audioConn
+		if err := updateUDPConnection(&client.audioConn, &client.audioAddr, clientHost, audioRTPPort); err != nil {
+			return fmt.Errorf("failed to update audio UDP connection: %w", err)
 		}
 
 		return nil
@@ -114,42 +145,14 @@ func (rf *RTPForwarder) AddUDPClient(sessionID string, videoRTPPort, audioRTPPor
 		lastActivity:  time.Now(),
 	}
 
-	// Create video connection if port provided
-	if videoRTPPort > 0 {
-		videoAddr, err := net.ResolveUDPAddr("udp", fmt.Sprintf("localhost:%d", videoRTPPort))
-		if err != nil {
-			return fmt.Errorf("failed to resolve video UDP address: %v", err)
-		}
-
-		videoConn, err := net.DialUDP("udp", nil, videoAddr)
-		if err != nil {
-			return fmt.Errorf("failed to create video UDP connection: %v", err)
-		}
-
-		client.videoAddr = videoAddr
-		client.videoConn = videoConn
+	if err := updateUDPConnection(&client.videoConn, &client.videoAddr, clientHost, videoRTPPort); err != nil {
+		return fmt.Errorf("failed to create video UDP connection: %w", err)
 	}
-
-	// Create audio connection if port provided
-	if audioRTPPort > 0 {
-		audioAddr, err := net.ResolveUDPAddr("udp", fmt.Sprintf("localhost:%d", audioRTPPort))
-		if err != nil {
-			if client.videoConn != nil {
-				client.videoConn.Close()
-			}
-			return fmt.Errorf("failed to resolve audio UDP address: %v", err)
+	if err := updateUDPConnection(&client.audioConn, &client.audioAddr, clientHost, audioRTPPort); err != nil {
+		if client.videoConn != nil {
+			client.videoConn.Close()
 		}
-
-		audioConn, err := net.DialUDP("udp", nil, audioAddr)
-		if err != nil {
-			if client.videoConn != nil {
-				client.videoConn.Close()
-			}
-			return fmt.Errorf("failed to create audio UDP connection: %v", err)
-		}
-
-		client.audioAddr = audioAddr
-		client.audioConn = audioConn
+		return fmt.Errorf("failed to create audio UDP connection: %w", err)
 	}
 
 	rf.clients[sessionID] = client

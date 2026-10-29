@@ -31,6 +31,7 @@ type WebRTCBridge struct {
 	resolution     string
 	streamType     int
 	isHEVC         bool
+	audioCodecType int
 	user           *storage.UserSession
 	storageManager *storage.StorageManager
 
@@ -43,7 +44,7 @@ type WebRTCBridge struct {
 
 	// State
 	connected bool
-	stopped bool // prevent duplicate teardown, including failed starts
+	stopped   bool // prevent duplicate teardown, including failed starts
 	waiter    utils.Waiter
 	mutex     sync.RWMutex
 
@@ -52,10 +53,10 @@ type WebRTCBridge struct {
 	cancel context.CancelFunc
 
 	// RTP forwarding
-	videoTrack  *pion.TrackRemote
-	audioTrack  *pion.TrackRemote
-	backchannel *pion.TrackLocalStaticRTP
-	talkback talkbackController
+	videoTrack      *pion.TrackRemote
+	audioTrack      *pion.TrackRemote
+	backchannel      *pion.TrackLocalStaticRTP
+	talkback         talkbackController
 	backchannelClock talkbackRTPClock
 
 	// Callbacks
@@ -142,6 +143,9 @@ func (wb *WebRTCBridge) Start() error {
 	// Determine stream settings
 	wb.streamType = tuya.GetStreamType(&skill, wb.resolution)
 	wb.isHEVC = tuya.IsHEVC(&skill, wb.streamType)
+	if len(skill.Audios) > 0 {
+		wb.audioCodecType = skill.Audios[0].CodecType
+	}
 
 	core.Logger.Info().Msgf("Stream settings - Resolution: %s, Type: %d, HEVC: %v", wb.resolution, wb.streamType, wb.isHEVC)
 
@@ -283,12 +287,7 @@ func (wb *WebRTCBridge) setupPeerConnection(webRTCConfig *tuya.WebRTCConfig) err
 					return
 				}
 
-				switch packet.SSRC {
-				case wb.rtpForwarder.videoSSRC:
-					wb.rtpForwarder.ForwardVideoPacket(packet)
-				case wb.rtpForwarder.audioSSRC:
-					wb.rtpForwarder.ForwardAudioPacket(packet)
-				}
+				wb.forwardDataChannelPacket(packet)
 			}
 		})
 
@@ -344,25 +343,30 @@ func (wb *WebRTCBridge) setupPeerConnection(webRTCConfig *tuya.WebRTCConfig) err
 		} else if track.Kind() == pion.RTPCodecTypeAudio {
 			wb.audioTrack = track
 
-			for _, tr := range wb.peerConnection.GetTransceivers() {
-				if tr.Receiver() == receiver && tr.Kind() == pion.RTPCodecTypeAudio {
-					if tr.Direction() == pion.RTPTransceiverDirectionSendrecv || tr.Direction() == pion.RTPTransceiverDirectionSendonly {
-						localTrack, err := pion.NewTrackLocalStaticRTP(
-							pion.RTPCodecCapability{MimeType: track.Codec().MimeType},
-							"audio-backchannel", "pion",
-						)
-						if err != nil {
-							core.Logger.Warn().Err(err).Msg("Talkback: unable to create audio track")
-							break
-						}
-						if err := tr.Sender().ReplaceTrack(localTrack); err != nil {
-							core.Logger.Warn().Err(err).Msg("Talkback: unable to attach audio track")
-							break
-						}
-						wb.backchannel = localTrack
-						core.Logger.Trace().Msgf("Setup backchannel track")
+			if wb.backchannel == nil {
+				for _, transceiver := range wb.peerConnection.GetTransceivers() {
+					if transceiver.Receiver() != receiver || transceiver.Kind() != pion.RTPCodecTypeAudio {
+						continue
+					}
+					if transceiver.Direction() != pion.RTPTransceiverDirectionSendrecv &&
+						transceiver.Direction() != pion.RTPTransceiverDirectionSendonly {
+						continue
+					}
+					backchannel, err := pion.NewTrackLocalStaticRTP(
+						pion.RTPCodecCapability{MimeType: track.Codec().MimeType},
+						"audio-backchannel", "pion",
+					)
+					if err != nil {
+						core.Logger.Warn().Err(err).Msg("Talkback: unable to create audio track")
 						break
 					}
+					if err := transceiver.Sender().ReplaceTrack(backchannel); err != nil {
+						core.Logger.Warn().Err(err).Msg("Talkback: unable to attach audio track")
+						break
+					}
+					wb.backchannel = backchannel
+					core.Logger.Trace().Msg("Setup backchannel track")
+					break
 				}
 			}
 
@@ -373,6 +377,66 @@ func (wb *WebRTCBridge) setupPeerConnection(webRTCConfig *tuya.WebRTCConfig) err
 	})
 
 	return nil
+}
+
+// forwardDataChannelPacket makes the camera's arbitrary HEVC payload type
+// match the type advertised by the RTSP SDP before forwarding it to clients.
+func (wb *WebRTCBridge) forwardDataChannelPacket(packet *rtp.Packet) {
+	switch packet.SSRC {
+	case wb.rtpForwarder.videoSSRC:
+		packet.PayloadType = 96
+		wb.rtpForwarder.ForwardVideoPacket(packet)
+	case wb.rtpForwarder.audioSSRC:
+		normalizeDataChannelAudioPacket(packet, wb.audioCodecType)
+		wb.rtpForwarder.ForwardAudioPacket(packet)
+	}
+}
+
+// normalizeDataChannelAudioPacket makes the audio payload match the RTSP SDP.
+// Tuya codec type 101 is signed 16-bit little-endian PCM, while the RTSP
+// endpoint exposes PCMU/8000 so go2rtc and browser MSE can consume it.
+func normalizeDataChannelAudioPacket(packet *rtp.Packet, codecType int) {
+	switch codecType {
+	case 101: // PCML
+		packet.Payload = pcm16LittleEndianToMuLaw(packet.Payload)
+		packet.PayloadType = 0
+	case 105: // PCMU
+		packet.PayloadType = 0
+	case 106: // PCMA
+		packet.PayloadType = 8
+	}
+}
+
+func pcm16LittleEndianToMuLaw(pcm []byte) []byte {
+	muLaw := make([]byte, len(pcm)/2)
+	for index := range muLaw {
+		sample := int16(uint16(pcm[index*2]) | uint16(pcm[index*2+1])<<8)
+		muLaw[index] = linearToMuLaw(sample)
+	}
+	return muLaw
+}
+
+func linearToMuLaw(sample int16) byte {
+	const bias = 0x84
+	const clip = 32635
+
+	pcm := int(sample)
+	sign := 0
+	if pcm < 0 {
+		sign = 0x80
+		pcm = -pcm
+	}
+	if pcm > clip {
+		pcm = clip
+	}
+	pcm += bias
+
+	exponent := 7
+	for mask := 0x4000; exponent > 0 && pcm&mask == 0; mask >>= 1 {
+		exponent--
+	}
+	mantissa := (pcm >> (exponent + 3)) & 0x0f
+	return ^byte(sign | exponent<<4 | mantissa)
 }
 
 func (wb *WebRTCBridge) setupMQTTCameraClient(webRTCConfig *tuya.WebRTCConfig) {
@@ -392,6 +456,7 @@ func (wb *WebRTCBridge) setupMQTTCameraClient(webRTCConfig *tuya.WebRTCConfig) {
 	wb.cameraClient.HandleAnswer = func(answer tuya.AnswerFrame) {
 		core.Logger.Trace().Msgf("Received WebRTC answer")
 		core.Logger.Trace().Msgf("Answer SDP: %s", answer.Sdp)
+		core.Logger.Info().Msgf("Talkback diagnostics: answer audio %s", audioNegotiationSummary(answer.Sdp))
 
 		desc := pion.SessionDescription{
 			Type: pion.SDPTypePranswer,
@@ -406,6 +471,9 @@ func (wb *WebRTCBridge) setupMQTTCameraClient(webRTCConfig *tuya.WebRTCConfig) {
 		if err := webrtc.SetAnswer(wb.peerConnection, answer.Sdp); err != nil {
 			wb.handleError(err)
 			return
+		}
+		if err := wb.attachBackchannelToNegotiatedAudio(); err != nil {
+			wb.handleError(err)
 		}
 	}
 
@@ -442,6 +510,54 @@ func (wb *WebRTCBridge) setupMQTTCameraClient(webRTCConfig *tuya.WebRTCConfig) {
 		wb.handleError(errors.New("camera client disconnected"))
 		wb.connected = false
 	}
+}
+
+// audioNegotiationSummary keeps deployment diagnostics limited to the public
+// SDP audio format lines; answers can otherwise contain private ICE details.
+func audioNegotiationSummary(sdp string) string {
+	var lines []string
+	inAudio := false
+	for _, line := range strings.Split(strings.ReplaceAll(sdp, "\r", ""), "\n") {
+		if strings.HasPrefix(line, "m=") {
+			inAudio = strings.HasPrefix(line, "m=audio ")
+		}
+		if inAudio && (strings.HasPrefix(line, "m=audio ") ||
+			strings.HasPrefix(line, "a=rtpmap:") ||
+			line == "a=sendrecv" || line == "a=sendonly" ||
+			line == "a=recvonly" || line == "a=inactive") {
+			lines = append(lines, line)
+		}
+	}
+	return strings.Join(lines, " | ")
+}
+
+// attachBackchannelToNegotiatedAudio keeps the main-branch audio offer, but
+// supports HEVC cameras that deliver incoming media over a DataChannel and
+// therefore never invoke OnTrack for audio.
+func (wb *WebRTCBridge) attachBackchannelToNegotiatedAudio() error {
+	if wb.backchannel != nil {
+		return nil
+	}
+	for _, transceiver := range wb.peerConnection.GetTransceivers() {
+		if transceiver.Kind() != pion.RTPCodecTypeAudio ||
+			(transceiver.Direction() != pion.RTPTransceiverDirectionSendrecv &&
+				transceiver.Direction() != pion.RTPTransceiverDirectionSendonly) {
+			continue
+		}
+		backchannel, err := pion.NewTrackLocalStaticRTP(
+			pion.RTPCodecCapability{MimeType: pion.MimeTypePCMU, ClockRate: 8000},
+			"audio-backchannel", "pion",
+		)
+		if err != nil {
+			return fmt.Errorf("create audio track: %w", err)
+		}
+		if err := transceiver.Sender().ReplaceTrack(backchannel); err != nil {
+			return fmt.Errorf("attach audio track: %w", err)
+		}
+		wb.backchannel = backchannel
+		return nil
+	}
+	return fmt.Errorf("no negotiated audio transceiver")
 }
 
 func (wb *WebRTCBridge) createAndSendOffer() error {

@@ -17,15 +17,20 @@ class LittleElfPttCard extends HTMLElement {
     this._stream = null;
     this._ctx = null;
     this._node = null;
+    this._testTimer = null;
+    this._testSession = null;
     this._blur = () => this._stop();
     this._visibility = () => { if (document.hidden) this._stop(); };
   }
 
   setConfig(config) {
-    if (!config.camera || typeof config.camera !== 'string') {
-      throw new Error('little-elf-ptt-card requires camera: <configured camera ID>');
+    const legacy = typeof config.camera === 'string';
+    const bridge = typeof config.entry_id === 'string' && typeof config.camera_id === 'string';
+    if (!legacy && !bridge) {
+      throw new Error('Set camera, or entry_id and camera_id for Tuya IPC Bridge discovery');
     }
     this._config = {...config};
+    this._bridge = bridge;
     this._render();
   }
   set hass(hass) { this._hass = hass; }
@@ -59,6 +64,7 @@ class LittleElfPttCard extends HTMLElement {
           color:var(--secondary-text-color,#999); }
       </style>
       <button type="button" aria-pressed="false">🎙 Hold to talk</button>
+      <button class="test" type="button">🔊 Test speaker tone</button>
       <div class="hint" role="status" aria-live="polite">Microphone off · Hold to speak</div>`;
     this._button = this.shadowRoot.querySelector('button');
     this._hint = this.shadowRoot.querySelector('.hint');
@@ -81,6 +87,7 @@ class LittleElfPttCard extends HTMLElement {
         event.preventDefault(); this._stop();
       }
     });
+    this.shadowRoot.querySelector('.test').addEventListener('click', () => this._startSpeakerTest());
   }
 
   _status(label, detail, active=false) {
@@ -110,52 +117,52 @@ class LittleElfPttCard extends HTMLElement {
       this._ctx = context;
       await context.resume();
       const mic = await navigator.mediaDevices.getUserMedia({
-        audio: {echoCancellation:true, noiseSuppression:true, autoGainControl:true},
+        audio: {channelCount:1, echoCancellation:true, noiseSuppression:true, autoGainControl:true},
         video:false,
       });
       if (!this._pressed || this._generation !== generation) {
         mic.getTracks().forEach(track => track.stop()); return;
       }
       this._stream = mic;
-
-      const response = await this._hass.connection.sendMessagePromise({
-        type:'little_elf_talk/start', camera:this._config.camera,
-      });
-      const token = response?.session;
-      if (!token) throw new Error('Talkback backend returned no session');
-      if (!this._pressed || this._generation !== generation) {
-        this._hass.connection.sendMessagePromise({
-          type:'little_elf_talk/stop', session:token,
-        }).catch(() => {});
-        return;
-      }
-      this._session = token;
-
-      await context.audioWorklet.addModule('/local/little-elf-talk-processor.js?v=0.1.0');
+      await context.audioWorklet.addModule('/local/little-elf-talk-processor.js?v=ptt-vps-20ms-1');
       if (!this._pressed || this._generation !== generation) return;
 
       const source = context.createMediaStreamSource(mic);
-      const processor = new AudioWorkletNode(context, 'little-elf-pcmu');
+      const processor = new AudioWorkletNode(context, 'little-elf-pcmu', {outputChannelCount:[1]});
       this._node = processor;
       const mute = context.createGain();
       mute.gain.value = 0;
       source.connect(processor);
       processor.connect(mute);
       mute.connect(context.destination);
+      let token = null;
       processor.port.onmessage = event => {
         if (!this._pressed || this._session !== token || !this._hass?.connection) return;
         const bytes = new Uint8Array(event.data);
         let binary = '';
         for (const byte of bytes) binary += String.fromCharCode(byte);
+        // Match the working VPS path: send each AudioWorklet 20 ms PCMU frame
+        // immediately, rather than adding a second browser timer/queue.
         try {
-          this._hass.connection.sendMessage({
-            type:'little_elf_talk/chunk', session:token, audio:btoa(binary),
-          });
+          this._hass.connection.sendMessage(this._message('chunk', {
+            session: token, audio: btoa(binary),
+          }));
         } catch (_) {
           this._stop();
         }
       };
-      this._status('🔴 Talking — release to stop', '8 kHz PCMU · Sending microphone', true);
+      // Match the working VPS flow: make the microphone graph live before
+      // negotiating RTSP, so the capture clock is stable when the first RTP
+      // frame reaches the bridge.
+      const response = await this._hass.connection.sendMessagePromise(this._message('start'));
+      token = response?.session;
+      if (!token) throw new Error('Talkback backend returned no session');
+      if (!this._pressed || this._generation !== generation) {
+        this._hass.connection.sendMessagePromise(this._message('stop', {session:token})).catch(() => {});
+        return;
+      }
+      this._session = token;
+      this._status('🔴 Talking — release to stop', `${context.sampleRate} Hz PCMU · Sending microphone`, true);
     } catch (error) {
       if (this._generation === generation) {
         this._status('🎙 Hold to talk', String(error?.message || error), false);
@@ -164,9 +171,63 @@ class LittleElfPttCard extends HTMLElement {
     }
   }
 
+  _toneFrame() {
+    const frame = new Uint8Array(160);
+    for (let index = 0; index < frame.length; index++) {
+      const sample = Math.sin(2 * Math.PI * 1000 * index / 8000) * 0.2;
+      frame[index] = LittleElfPttCard._encodePCMU(sample);
+    }
+    return frame;
+  }
+
+  static _encodePCMU(sample) {
+    let pcm = Math.max(-32768, Math.min(32767, Math.round(sample * 32767)));
+    const mask = pcm < 0 ? 0x7f : 0xff;
+    if (pcm < 0) pcm = -pcm;
+    pcm = Math.min(32635, pcm + 132);
+    let segment = 0, value = pcm >> 7;
+    while (value > 1 && segment < 7) { segment++; value >>= 1; }
+    return (((segment << 4) | ((pcm >> (segment + 3)) & 15)) ^ mask) & 255;
+  }
+
+  async _startSpeakerTest() {
+    if (this._pressed || this._testTimer || !this._hass?.connection) return;
+    try {
+      const response = await this._hass.connection.sendMessagePromise(this._message('start'));
+      const session = response?.session;
+      if (!session) throw new Error('Talkback backend returned no session');
+      this._testSession = session;
+      const frame = this._toneFrame();
+      let binary = '';
+      for (const byte of frame) binary += String.fromCharCode(byte);
+      const audio = btoa(binary);
+      const send = () => this._hass?.connection?.sendMessage(
+        this._message('chunk', {session, audio})
+      );
+      send();
+      this._status('🔊 Testing speaker…', 'Three-second 1 kHz PCMU reference tone', true);
+      this._testTimer = window.setInterval(send, 20);
+      window.setTimeout(() => this._stopSpeakerTest(), 3000);
+    } catch (error) {
+      this._status('🎙 Hold to talk', String(error?.message || error), false);
+    }
+  }
+
+  _stopSpeakerTest() {
+    if (this._testTimer) window.clearInterval(this._testTimer);
+    this._testTimer = null;
+    const session = this._testSession;
+    this._testSession = null;
+    if (session && this._hass?.connection) {
+      this._hass.connection.sendMessagePromise(this._message('stop', {session})).catch(() => {});
+    }
+    if (!this._pressed) this._status('🎙 Hold to talk', 'Microphone off · Hold to speak');
+  }
+
   _stop(keepError=false) {
     if (!this._pressed && !this._stream && !this._ctx && !this._session) return;
     this._pressed = false;
+    this._stopSpeakerTest();
     this._generation++;
     const token = this._session;
     this._session = null;
@@ -183,11 +244,25 @@ class LittleElfPttCard extends HTMLElement {
       this._ctx = null;
     }
     if (token && this._hass?.connection) {
-      this._hass.connection.sendMessagePromise({
-        type:'little_elf_talk/stop', session:token,
-      }).catch(() => {});
+      this._hass.connection.sendMessagePromise(this._message('stop', {session:token})).catch(() => {});
     }
     if (!keepError) this._status('🎙 Hold to talk', 'Microphone off · Hold to speak');
+  }
+
+  _message(action, data = {}) {
+    if (!this._bridge) {
+      return {
+        type:`little_elf_talk/${action}`,
+        ...(action === 'start' ? {camera:this._config.camera} : {}),
+        ...data,
+      };
+    }
+    const type = {start:'ptt_start', chunk:'ptt_chunk', stop:'ptt_stop'}[action];
+    return {
+      type:`tuya_ipc_bridge/${type}`,
+      ...(action === 'start' ? {entry_id:this._config.entry_id, camera_id:this._config.camera_id} : {}),
+      ...data,
+    };
   }
 }
 

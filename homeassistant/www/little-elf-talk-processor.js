@@ -1,5 +1,6 @@
 /* Little Elf browser-side resampler and 8 kHz mono PCMU encoder.
- * 160 bytes = 20 ms of RTP payload. No network or camera credentials here.
+ * 160 bytes = 20 ms of RTP payload. Frames are emitted directly from the
+ * AudioWorklet to preserve the working VPS microphone timing.
  * Adapted from the tested Home Assistant PTT prototype.
  */
 function encodePCMU(sample) {

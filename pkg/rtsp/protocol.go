@@ -14,7 +14,7 @@ import (
 	"strings"
 	"time"
 	"tuya-ipc-terminal/pkg/core"
-	
+
 	"tuya-ipc-terminal/pkg/tuya"
 
 	"github.com/pion/rtp"
@@ -444,7 +444,13 @@ func (s *RTSPServer) handleSetup(client *RTSPClient, request *RTSPRequest) {
 
 		// Add/update UDP client with current ports after video and audio setup
 		if isVideoTrack || isAudioTrack {
-			err := client.stream.webrtcBridge.rtpForwarder.AddUDPClient(client.session,
+			clientHost, _, hostErr := net.SplitHostPort(client.conn.RemoteAddr().String())
+			if hostErr != nil {
+				sendRTSPResponse(client.conn, 500, "Internal Server Error", nil,
+					"Unable to determine client address")
+				return
+			}
+			err := client.stream.webrtcBridge.rtpForwarder.AddUDPClient(client.session, clientHost,
 				client.videoRTPPort, client.audioRTPPort)
 			if err != nil {
 				core.Logger.Error().Err(err).Msg("Error adding UDP RTP client")
