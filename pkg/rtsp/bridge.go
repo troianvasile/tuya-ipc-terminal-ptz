@@ -227,7 +227,6 @@ func (wb *WebRTCBridge) ForwardBackchannelAudioPacket(packet *rtp.Packet) {
 	}
 	if err := wb.talkback.forward(wb.cameraClient.SendSpeaker, func() error {
 		outgoing := wb.backchannelClock.rewrite(packet, time.Now())
-		normalizeBackchannelAudioPacket(outgoing, wb.audioCodecType)
 		return wb.backchannel.WriteRTP(outgoing)
 	}); err != nil {
 		core.Logger.Warn().Err(err).Msg("Talkback: audio packet not forwarded")
@@ -418,38 +417,6 @@ func linearToMuLaw(sample int16) byte {
 	return ^byte(sign | exponent<<4 | mantissa)
 }
 
-// normalizeBackchannelAudioPacket converts HA's PCMU microphone transport to
-// the Tuya camera's codec-101 PCML payload before WebRTC forwarding. Tuya
-// identifies this as L16 in SDP but uses little-endian sample bytes.
-func normalizeBackchannelAudioPacket(packet *rtp.Packet, codecType int) {
-	if packet == nil || codecType != 101 {
-		return
-	}
-	packet.Payload = muLawToPCM16LittleEndian(packet.Payload)
-	packet.PayloadType = 97
-}
-
-func muLawToPCM16LittleEndian(muLaw []byte) []byte {
-	pcm := make([]byte, len(muLaw)*2)
-	for index, value := range muLaw {
-		decoded := muLawToLinear(value)
-		pcm[index*2] = byte(decoded)
-		pcm[index*2+1] = byte(uint16(decoded) >> 8)
-	}
-	return pcm
-}
-
-func muLawToLinear(value byte) int16 {
-	decoded := ^int(value)
-	sample := ((decoded & 0x0f) << 3) + 0x84
-	sample <<= (decoded >> 4) & 0x07
-	sample -= 0x84
-	if decoded&0x80 != 0 {
-		sample = -sample
-	}
-	return int16(sample)
-}
-
 func (wb *WebRTCBridge) setupMQTTCameraClient(webRTCConfig *tuya.WebRTCConfig) {
 	device := &tuya.Device{
 		DeviceId:   wb.camera.DeviceID,
@@ -467,6 +434,7 @@ func (wb *WebRTCBridge) setupMQTTCameraClient(webRTCConfig *tuya.WebRTCConfig) {
 	wb.cameraClient.HandleAnswer = func(answer tuya.AnswerFrame) {
 		core.Logger.Trace().Msgf("Received WebRTC answer")
 		core.Logger.Trace().Msgf("Answer SDP: %s", answer.Sdp)
+		core.Logger.Info().Msgf("Talkback diagnostics: answer audio %s", audioNegotiationSummary(answer.Sdp))
 
 		desc := pion.SessionDescription{
 			Type: pion.SDPTypePranswer,
@@ -519,17 +487,32 @@ func (wb *WebRTCBridge) setupMQTTCameraClient(webRTCConfig *tuya.WebRTCConfig) {
 	}
 }
 
+// audioNegotiationSummary keeps deployment diagnostics limited to the public
+// SDP audio format lines; answers can otherwise contain private ICE details.
+func audioNegotiationSummary(sdp string) string {
+	var lines []string
+	inAudio := false
+	for _, line := range strings.Split(strings.ReplaceAll(sdp, "\r", ""), "\n") {
+		if strings.HasPrefix(line, "m=") {
+			inAudio = strings.HasPrefix(line, "m=audio ")
+		}
+		if inAudio && (strings.HasPrefix(line, "m=audio ") ||
+			strings.HasPrefix(line, "a=rtpmap:") ||
+			line == "a=sendrecv" || line == "a=sendonly" ||
+			line == "a=recvonly" || line == "a=inactive") {
+			lines = append(lines, line)
+		}
+	}
+	return strings.Join(lines, " | ")
+}
+
 func (wb *WebRTCBridge) setupBackchannel() error {
 	if wb.backchannel != nil {
 		return nil
 	}
 
-	capability := pion.RTPCodecCapability{MimeType: pion.MimeTypePCMU, ClockRate: 8000}
-	if wb.audioCodecType == 101 {
-		capability.MimeType = "audio/L16"
-	}
 	backchannel, err := pion.NewTrackLocalStaticRTP(
-		capability,
+		pion.RTPCodecCapability{MimeType: pion.MimeTypePCMU, ClockRate: 8000},
 		"audio-backchannel", "pion",
 	)
 	if err != nil {

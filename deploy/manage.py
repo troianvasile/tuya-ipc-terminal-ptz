@@ -122,7 +122,9 @@ def supervise():
                     LOG.warning("Camera refresh failed; continuing")
                 RTSP = subprocess.Popen(
                     ["tuya-ipc-terminal", "rtsp", "start", "--port", str(RTSP_PORT)],
-                    cwd="/data", stdout=subprocess.DEVNULL, stderr=subprocess.STDOUT)
+                    cwd="/data", stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                    text=True, bufsize=1)
+                threading.Thread(target=relay_rtsp_diagnostics, args=(RTSP,), daemon=True).start()
                 LOG.info("RTSP bridge started (pid=%s)", RTSP.pid)
         elif RTSP is not None:
             if RTSP.poll() is None:
@@ -132,6 +134,15 @@ def supervise():
         STATUS["rtsp"] = "running" if RTSP is not None and RTSP.poll() is None else "stopped"
         last_set = current
         time.sleep(10)
+
+
+def relay_rtsp_diagnostics(process):
+    """Expose only sanitized talkback negotiation diagnostics from the child."""
+    if process.stdout is None:
+        return
+    for line in iter(process.stdout.readline, ""):
+        if "Talkback diagnostics:" in line:
+            LOG.info("%s", line.strip()[:1000])
 
 
 def do_qr(jobid, region, email):
