@@ -56,6 +56,7 @@ type WebRTCBridge struct {
 	videoTrack      *pion.TrackRemote
 	audioTrack      *pion.TrackRemote
 	backchannel     *pion.TrackLocalStaticRTP
+	backchannelPCMA bool
 	talkback        talkbackController
 	talkbackPackets uint64
 
@@ -225,11 +226,15 @@ func (wb *WebRTCBridge) ForwardBackchannelAudioPacket(packet *rtp.Packet) {
 	if packet == nil || wb.backchannel == nil || wb.cameraClient == nil {
 		return
 	}
+	outgoing := packet
+	if wb.backchannelPCMA {
+		outgoing = pcmuRTPToPCMA(packet)
+	}
 	if err := wb.talkback.forward(wb.cameraClient.SendSpeaker, func() error {
 		// Home Assistant's RTSP sender already emits contiguous PCMU/8000 RTP
 		// timestamps. Preserve that RTP clock verbatim; rewriting or delaying it
 		// here introduces a second clock between the microphone and camera.
-		return wb.backchannel.WriteRTP(packet)
+		return wb.backchannel.WriteRTP(outgoing)
 	}); err != nil {
 		core.Logger.Warn().Err(err).Msg("Talkback: audio packet not forwarded")
 		return
@@ -239,8 +244,8 @@ func (wb *WebRTCBridge) ForwardBackchannelAudioPacket(packet *rtp.Packet) {
 		core.Logger.Info().Msgf(
 			"Talkback diagnostics: forwarded %d RTP packets; payload type %d, latest payload %d bytes",
 			wb.talkbackPackets,
-			packet.PayloadType,
-			len(packet.Payload),
+			outgoing.PayloadType,
+			len(outgoing.Payload),
 		)
 	}
 }
@@ -452,6 +457,55 @@ func linearToMuLaw(sample int16) byte {
 	return ^byte(sign | exponent<<4 | mantissa)
 }
 
+// pcmuRTPToPCMA preserves the RTP clock while changing only the G.711 payload.
+// The bridge receives PCMU from Home Assistant, while this Tuya HEVC camera's
+// negotiated answer also explicitly permits PCMA/8000 for its speaker track.
+func pcmuRTPToPCMA(input *rtp.Packet) *rtp.Packet {
+	packet := *input
+	packet.Header = input.Header
+	packet.Payload = make([]byte, len(input.Payload))
+	for index, value := range input.Payload {
+		packet.Payload[index] = linearToALaw(muLawToLinear(value))
+	}
+	packet.PayloadType = 8
+	return &packet
+}
+
+func muLawToLinear(value byte) int16 {
+	decoded := ^int(value)
+	sample := ((decoded & 0x0f) << 3) + 0x84
+	sample <<= (decoded >> 4) & 0x07
+	sample -= 0x84
+	if decoded&0x80 != 0 {
+		sample = -sample
+	}
+	return int16(sample)
+}
+
+func linearToALaw(sample int16) byte {
+	pcm := int(sample) >> 3
+	mask := 0xd5
+	if pcm < 0 {
+		mask = 0x55
+		pcm = -pcm - 1
+	}
+
+	segment := 0
+	for limit := 0x1f; segment < 8 && pcm > limit; segment, limit = segment+1, (limit<<1)|1 {
+	}
+	if segment >= 8 {
+		return byte(0x7f ^ mask)
+	}
+
+	mantissa := 0
+	if segment < 2 {
+		mantissa = (pcm >> 1) & 0x0f
+	} else {
+		mantissa = (pcm >> segment) & 0x0f
+	}
+	return byte((segment << 4) | mantissa ^ mask)
+}
+
 func (wb *WebRTCBridge) setupMQTTCameraClient(webRTCConfig *tuya.WebRTCConfig) {
 	device := &tuya.Device{
 		DeviceId:   wb.camera.DeviceID,
@@ -558,7 +612,7 @@ func (wb *WebRTCBridge) attachBackchannelToNegotiatedAudio() error {
 			continue
 		}
 		backchannel, err := pion.NewTrackLocalStaticRTP(
-			pion.RTPCodecCapability{MimeType: pion.MimeTypePCMU, ClockRate: 8000},
+			pion.RTPCodecCapability{MimeType: pion.MimeTypePCMA, ClockRate: 8000},
 			"audio-backchannel", "pion",
 		)
 		if err != nil {
@@ -568,6 +622,7 @@ func (wb *WebRTCBridge) attachBackchannelToNegotiatedAudio() error {
 			return fmt.Errorf("attach audio track: %w", err)
 		}
 		wb.backchannel = backchannel
+		wb.backchannelPCMA = true
 		return nil
 	}
 	return fmt.Errorf("no negotiated audio transceiver")
