@@ -330,7 +330,7 @@ func (wb *WebRTCBridge) setupPeerConnection(webRTCConfig *tuya.WebRTCConfig) err
 	})
 
 	// Setup track handler for incoming media if not HEVC
-	wb.peerConnection.OnTrack(func(track *pion.TrackRemote, receiver *pion.RTPReceiver) {
+	wb.peerConnection.OnTrack(func(track *pion.TrackRemote, _ *pion.RTPReceiver) {
 		codec := track.Codec()
 		core.Logger.Trace().Msgf("Received track: %s, PayloadType: %d", codec.MimeType, codec.PayloadType)
 
@@ -343,26 +343,8 @@ func (wb *WebRTCBridge) setupPeerConnection(webRTCConfig *tuya.WebRTCConfig) err
 		} else if track.Kind() == pion.RTPCodecTypeAudio {
 			wb.audioTrack = track
 
-			for _, tr := range wb.peerConnection.GetTransceivers() {
-				if tr.Receiver() == receiver && tr.Kind() == pion.RTPCodecTypeAudio {
-					if tr.Direction() == pion.RTPTransceiverDirectionSendrecv || tr.Direction() == pion.RTPTransceiverDirectionSendonly {
-						localTrack, err := pion.NewTrackLocalStaticRTP(
-							pion.RTPCodecCapability{MimeType: track.Codec().MimeType},
-							"audio-backchannel", "pion",
-						)
-						if err != nil {
-							core.Logger.Warn().Err(err).Msg("Talkback: unable to create audio track")
-							break
-						}
-						if err := tr.Sender().ReplaceTrack(localTrack); err != nil {
-							core.Logger.Warn().Err(err).Msg("Talkback: unable to attach audio track")
-							break
-						}
-						wb.backchannel = localTrack
-						core.Logger.Trace().Msgf("Setup backchannel track")
-						break
-					}
-				}
+			if wb.backchannel == nil {
+				core.Logger.Warn().Msg("Talkback: negotiated audio track has no PCMU backchannel")
 			}
 
 			if !wb.isHEVC {
@@ -503,6 +485,26 @@ func (wb *WebRTCBridge) setupMQTTCameraClient(webRTCConfig *tuya.WebRTCConfig) {
 	}
 }
 
+func (wb *WebRTCBridge) setupBackchannel() error {
+	if wb.backchannel != nil {
+		return nil
+	}
+
+	backchannel, err := pion.NewTrackLocalStaticRTP(
+		pion.RTPCodecCapability{MimeType: pion.MimeTypePCMU, ClockRate: 8000},
+		"audio-backchannel", "pion",
+	)
+	if err != nil {
+		return fmt.Errorf("create audio track: %w", err)
+	}
+	if _, err := wb.peerConnection.AddTransceiverFromTrack(backchannel,
+		pion.RTPTransceiverInit{Direction: pion.RTPTransceiverDirectionSendrecv}); err != nil {
+		return fmt.Errorf("add audio transceiver: %w", err)
+	}
+	wb.backchannel = backchannel
+	return nil
+}
+
 func (wb *WebRTCBridge) createAndSendOffer() error {
 	wb.peerConnection.OnICECandidate(func(candidate *pion.ICECandidate) {
 		if candidate != nil {
@@ -514,8 +516,15 @@ func (wb *WebRTCBridge) createAndSendOffer() error {
 		}
 	})
 
+	// HEVC cameras deliver their incoming audio through a DataChannel, so an
+	// audio OnTrack callback is not guaranteed. Negotiate the PCMU talkback
+	// track before sending the offer so microphone RTP has a sender in both
+	// the DataChannel and normal RTP cases.
+	if err := wb.setupBackchannel(); err != nil {
+		return fmt.Errorf("talkback: %w", err)
+	}
+
 	medias := []*utils.Media{
-		{Kind: utils.KindAudio, Direction: utils.DirectionSendRecv},
 		{Kind: utils.KindVideo, Direction: utils.DirectionRecvonly},
 	}
 
