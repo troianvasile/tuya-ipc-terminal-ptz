@@ -117,10 +117,7 @@ class LittleElfPttCard extends HTMLElement {
       this._ctx = context;
       await context.resume();
       const mic = await navigator.mediaDevices.getUserMedia({
-        // The processor does the 48/44.1 kHz -> 8 kHz conversion itself.
-        // Browser voice enhancement is optimized for a local call and can
-        // distort this narrow-band, packetized talkback stream.
-        audio: {channelCount:1, echoCancellation:false, noiseSuppression:false, autoGainControl:false},
+        audio: {echoCancellation:true, noiseSuppression:true, autoGainControl:true},
         video:false,
       });
       if (!this._pressed || this._generation !== generation) {
@@ -141,16 +138,11 @@ class LittleElfPttCard extends HTMLElement {
       if (!this._pressed || this._generation !== generation) return;
 
       const source = context.createMediaStreamSource(mic);
-      const speechFilter = context.createBiquadFilter();
-      speechFilter.type = 'lowpass';
-      speechFilter.frequency.value = 3400;
-      speechFilter.Q.value = 0.707;
       const processor = new AudioWorkletNode(context, 'little-elf-pcmu');
       this._node = processor;
       const mute = context.createGain();
       mute.gain.value = 0;
-      source.connect(speechFilter);
-      speechFilter.connect(processor);
+      source.connect(processor);
       processor.connect(mute);
       mute.connect(context.destination);
       processor.port.onmessage = event => {
@@ -164,7 +156,7 @@ class LittleElfPttCard extends HTMLElement {
           this._stop();
         }
       };
-      this._status('🔴 Talking — release to stop', 'Filtered 8 kHz PCMU · Sending microphone', true);
+      this._status('🔴 Talking — release to stop', '8 kHz PCMU · Sending microphone', true);
     } catch (error) {
       if (this._generation === generation) {
         this._status('🎙 Hold to talk', String(error?.message || error), false);
