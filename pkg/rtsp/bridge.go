@@ -53,12 +53,11 @@ type WebRTCBridge struct {
 	cancel context.CancelFunc
 
 	// RTP forwarding
-	videoTrack       *pion.TrackRemote
-	audioTrack       *pion.TrackRemote
-	backchannel      *pion.TrackLocalStaticRTP
-	talkback         talkbackController
-	backchannelClock talkbackRTPClock
-	talkbackPackets  uint64
+	videoTrack      *pion.TrackRemote
+	audioTrack      *pion.TrackRemote
+	backchannel     *pion.TrackLocalStaticRTP
+	talkback        talkbackController
+	talkbackPackets uint64
 
 	// Callbacks
 	OnVideoPacket func(packet *rtp.Packet)
@@ -226,25 +225,23 @@ func (wb *WebRTCBridge) ForwardBackchannelAudioPacket(packet *rtp.Packet) {
 	if packet == nil || wb.backchannel == nil || wb.cameraClient == nil {
 		return
 	}
-	var outgoing *rtp.Packet
 	if err := wb.talkback.forward(wb.cameraClient.SendSpeaker, func() error {
-		wb.backchannelClock.pace(len(packet.Payload))
-		outgoing = wb.backchannelClock.rewrite(packet, time.Now())
-		return wb.backchannel.WriteRTP(outgoing)
+		// Home Assistant's RTSP sender already emits contiguous PCMU/8000 RTP
+		// timestamps. Preserve that RTP clock verbatim; rewriting or delaying it
+		// here introduces a second clock between the microphone and camera.
+		return wb.backchannel.WriteRTP(packet)
 	}); err != nil {
 		core.Logger.Warn().Err(err).Msg("Talkback: audio packet not forwarded")
 		return
 	}
-	if outgoing != nil {
-		wb.talkbackPackets++
-		if wb.talkbackPackets%50 == 0 {
-			core.Logger.Info().Msgf(
-				"Talkback diagnostics: forwarded %d RTP packets; payload type %d, latest payload %d bytes",
-				wb.talkbackPackets,
-				outgoing.PayloadType,
-				len(outgoing.Payload),
-			)
-		}
+	wb.talkbackPackets++
+	if wb.talkbackPackets%50 == 0 {
+		core.Logger.Info().Msgf(
+			"Talkback diagnostics: forwarded %d RTP packets; payload type %d, latest payload %d bytes",
+			wb.talkbackPackets,
+			packet.PayloadType,
+			len(packet.Payload),
+		)
 	}
 }
 
