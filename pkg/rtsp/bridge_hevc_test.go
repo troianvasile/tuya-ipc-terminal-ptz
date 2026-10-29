@@ -50,3 +50,20 @@ func TestDataChannelHEVCVideoPayloadTypeMatchesRTSPSDP(t *testing.T) {
 	}
 	<-done
 }
+
+func TestDataChannelPCMLAudioMatchesRTSPSDP(t *testing.T) {
+	packet := &rtp.Packet{
+		Header:  rtp.Header{PayloadType: 101},
+		Payload: []byte{0, 0, 0xff, 0x7f, 0x00, 0x80},
+	}
+
+	normalizeDataChannelAudioPacket(packet, 101)
+
+	if packet.PayloadType != 0 {
+		t.Fatalf("payload type = %d, want 0", packet.PayloadType)
+	}
+	want := []byte{0xff, 0x80, 0x00}
+	if string(packet.Payload) != string(want) {
+		t.Fatalf("PCML converted to %x, want %x", packet.Payload, want)
+	}
+}

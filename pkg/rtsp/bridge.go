@@ -31,6 +31,7 @@ type WebRTCBridge struct {
 	resolution     string
 	streamType     int
 	isHEVC         bool
+	audioCodecType int
 	user           *storage.UserSession
 	storageManager *storage.StorageManager
 
@@ -142,6 +143,9 @@ func (wb *WebRTCBridge) Start() error {
 	// Determine stream settings
 	wb.streamType = tuya.GetStreamType(&skill, wb.resolution)
 	wb.isHEVC = tuya.IsHEVC(&skill, wb.streamType)
+	if len(skill.Audios) > 0 {
+		wb.audioCodecType = skill.Audios[0].CodecType
+	}
 
 	core.Logger.Info().Msgf("Stream settings - Resolution: %s, Type: %d, HEVC: %v", wb.resolution, wb.streamType, wb.isHEVC)
 
@@ -378,8 +382,56 @@ func (wb *WebRTCBridge) forwardDataChannelPacket(packet *rtp.Packet) {
 		packet.PayloadType = 96
 		wb.rtpForwarder.ForwardVideoPacket(packet)
 	case wb.rtpForwarder.audioSSRC:
+		normalizeDataChannelAudioPacket(packet, wb.audioCodecType)
 		wb.rtpForwarder.ForwardAudioPacket(packet)
 	}
+}
+
+// normalizeDataChannelAudioPacket makes the audio payload match the RTSP SDP.
+// Tuya codec type 101 is signed 16-bit little-endian PCM, while the RTSP
+// endpoint exposes PCMU/8000 so go2rtc and browser MSE can consume it.
+func normalizeDataChannelAudioPacket(packet *rtp.Packet, codecType int) {
+	switch codecType {
+	case 101: // PCML
+		packet.Payload = pcm16LittleEndianToMuLaw(packet.Payload)
+		packet.PayloadType = 0
+	case 105: // PCMU
+		packet.PayloadType = 0
+	case 106: // PCMA
+		packet.PayloadType = 8
+	}
+}
+
+func pcm16LittleEndianToMuLaw(pcm []byte) []byte {
+	muLaw := make([]byte, len(pcm)/2)
+	for index := range muLaw {
+		sample := int16(uint16(pcm[index*2]) | uint16(pcm[index*2+1])<<8)
+		muLaw[index] = linearToMuLaw(sample)
+	}
+	return muLaw
+}
+
+func linearToMuLaw(sample int16) byte {
+	const bias = 0x84
+	const clip = 32635
+
+	pcm := int(sample)
+	sign := 0
+	if pcm < 0 {
+		sign = 0x80
+		pcm = -pcm
+	}
+	if pcm > clip {
+		pcm = clip
+	}
+	pcm += bias
+
+	exponent := 7
+	for mask := 0x4000; exponent > 0 && pcm&mask == 0; mask >>= 1 {
+		exponent--
+	}
+	mantissa := (pcm >> (exponent + 3)) & 0x0f
+	return ^byte(sign | exponent<<4 | mantissa)
 }
 
 func (wb *WebRTCBridge) setupMQTTCameraClient(webRTCConfig *tuya.WebRTCConfig) {
