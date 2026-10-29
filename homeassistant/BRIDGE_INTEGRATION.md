@@ -108,13 +108,14 @@ type: custom:tuya-ipc-bridge-setup-card
 ```
 
 The card resolves the only configured bridge automatically. Each card renders
-**one selected camera** with its own HA camera widget, hold-to-talk control,
-bounded PTZ directions and an **Open bridge manager** link. Its selector lets
-an administrator switch the displayed camera; add another card when you want
-two camera widgets visible at once. Pin a card to one discovered camera with
-`camera_id: YOUR_DEVICE_ID`. By default the widget uses still frames, which is
-reliable for HEVC-only cameras; set `live: true` when the camera/browser
-combination can play the generated HA stream and incoming audio. If multiple
+**one selected camera** through the [WebRTC integration](https://github.com/AlexxIT/WebRTC)
+in `mse,hls` mode, with its own hold-to-talk control, bounded PTZ directions
+and an **Open bridge manager** link. The WebRTC integration provides the
+go2rtc playback layer; install and configure it before adding this card. Its
+selector lets an administrator switch the displayed camera; add another card
+when you want two camera widgets visible at once. Pin a card to one discovered
+camera with `camera_id: YOUR_DEVICE_ID`. Use `go2rtc_server` only when the
+WebRTC card must connect to a separately hosted go2rtc instance. If multiple
 bridge entries are configured, set `entry_id` on the card explicitly. The
 linked manager page will still request its own bridge credentials; none are
 passed in the URL.

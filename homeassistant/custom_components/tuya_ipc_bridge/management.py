@@ -15,6 +15,7 @@ import voluptuous as vol
 from homeassistant.components import websocket_api
 from homeassistant.helpers import entity_registry as er
 
+from .camera import get_camera_rtsp_url
 from .const import CONF_BROWSER_URL, DOMAIN, CONF_URL, CONF_USERNAME, CONF_PASSWORD
 
 
@@ -125,6 +126,10 @@ async def ws_manage(hass, connection, msg):
                     {
                         "name": camera.get("name", "Tuya camera"),
                         "camera_id": camera.get("device_id"),
+                        "rtsp_url": get_camera_rtsp_url(
+                            hass.data[DOMAIN][entry.entry_id]["coordinator"],
+                            camera.get("device_id"),
+                        ),
                         "entity_id": registry.async_get_entity_id(
                             "camera", DOMAIN,
                             f"{entry.entry_id}_{camera.get('device_id', '')}",

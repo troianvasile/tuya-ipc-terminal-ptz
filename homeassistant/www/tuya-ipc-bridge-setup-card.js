@@ -9,7 +9,7 @@ class TuyaIpcBridgeSetupCard extends HTMLElement {
 
   set hass(value) {
     this._hass = value;
-    for (const child of this.querySelectorAll("hui-picture-entity-card, little-elf-ptt-card")) {
+    for (const child of this.querySelectorAll("webrtc-camera, little-elf-ptt-card")) {
       child.hass = value;
     }
     if (!this.loaded) {
@@ -94,17 +94,20 @@ class TuyaIpcBridgeSetupCard extends HTMLElement {
       this.render();
     };
     section.append(picker);
-    if (camera.entity_id) {
-      const video = document.createElement("hui-picture-entity-card");
+    if (camera.rtsp_url && customElements.get("webrtc-camera")) {
+      const video = document.createElement("webrtc-camera");
       video.setConfig({
-        type: "picture-entity", entity: camera.entity_id, name: camera.name,
-        camera_view: this.config.live === true ? "live" : "auto", show_state: false,
+        type: "custom:webrtc-camera", url: camera.rtsp_url,
+        mode: this.config.mode || "mse,hls", media: "video,audio", ui: true,
+        ...(this.config.go2rtc_server ? {server: this.config.go2rtc_server} : {}),
       });
       video.hass = this._hass;
       section.append(video);
     } else {
       const pending = document.createElement("p");
-      pending.textContent = "Camera entity is still being registered. Refresh in a moment.";
+      pending.textContent = camera.rtsp_url
+        ? "Install and configure the WebRTC integration to enable MSE playback."
+        : "Camera stream is still being registered. Refresh in a moment.";
       section.append(pending);
     }
     const ptt = document.createElement("little-elf-ptt-card");
