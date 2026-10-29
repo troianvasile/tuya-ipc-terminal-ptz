@@ -1,4 +1,4 @@
-import "/local/little-elf-ptt-card.js?v=ptt-clock-final-1";
+import "/local/little-elf-ptt-card.js?v=tuya-320-frame-1";
 
 class TuyaIpcBridgeSetupCard extends HTMLElement {
   setConfig(config) {

@@ -1,5 +1,6 @@
 /* Little Elf browser-side resampler and 8 kHz mono PCMU encoder.
- * 160 bytes = 20 ms of RTP payload. No network or camera credentials here.
+ * 320 bytes = 40 ms of RTP payload, as required by Tuya's G.711u IPC
+ * talkback framing. No network or camera credentials here.
  * Adapted from the tested Home Assistant PTT prototype.
  */
 function encodePCMU(sample) {
@@ -18,7 +19,7 @@ class LittleElfPCMULaw extends AudioWorkletProcessor {
     this.acc = 0;
     this.sum = 0;
     this.count = 0;
-    this.frame = new Uint8Array(160);
+    this.frame = new Uint8Array(320);
     this.index = 0;
   }
   process(inputs, outputs) {
@@ -31,10 +32,10 @@ class LittleElfPCMULaw extends AudioWorkletProcessor {
           this.acc -= sampleRate;
           this.frame[this.index++] = encodePCMU(this.sum / this.count);
           this.sum = 0; this.count = 0;
-          if (this.index === 160) {
+          if (this.index === 320) {
             const result = this.frame;
             this.port.postMessage(result, [result.buffer]);
-            this.frame = new Uint8Array(160);
+            this.frame = new Uint8Array(320);
             this.index = 0;
           }
         }

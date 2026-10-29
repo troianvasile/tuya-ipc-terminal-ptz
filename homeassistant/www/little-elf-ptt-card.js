@@ -152,10 +152,8 @@ class LittleElfPttCard extends HTMLElement {
         const bytes = new Uint8Array(event.data);
         let binary = '';
         for (const byte of bytes) binary += String.fromCharCode(byte);
-        // AudioWorklet callbacks are driven by the browser's render clock.
-        // Release PCMU as exactly one 20-ms frame at a time, matching the
-        // camera-proven speaker-tone cadence.
-        if (this._audioQueue.length >= 25) this._audioQueue.shift();
+        // Tuya's G.711u IPC talkback requires 320-byte, 40-ms frames.
+        if (this._audioQueue.length >= 13) this._audioQueue.shift();
         this._audioQueue.push(btoa(binary));
       };
       this._sendTimer = window.setInterval(() => {
@@ -167,7 +165,7 @@ class LittleElfPttCard extends HTMLElement {
         } catch (_) {
           this._stop();
         }
-      }, 20);
+      }, 40);
       this._status('🔴 Talking — release to stop', `${context.sampleRate} Hz PCMU · Sending microphone`, true);
     } catch (error) {
       if (this._generation === generation) {
@@ -178,7 +176,7 @@ class LittleElfPttCard extends HTMLElement {
   }
 
   _toneFrame() {
-    const frame = new Uint8Array(160);
+    const frame = new Uint8Array(320);
     for (let index = 0; index < frame.length; index++) {
       const sample = Math.sin(2 * Math.PI * 1000 * index / 8000) * 0.2;
       frame[index] = LittleElfPttCard._encodePCMU(sample);
@@ -212,7 +210,7 @@ class LittleElfPttCard extends HTMLElement {
       );
       send();
       this._status('🔊 Testing speaker…', 'Three-second 1 kHz PCMU reference tone', true);
-      this._testTimer = window.setInterval(send, 20);
+      this._testTimer = window.setInterval(send, 40);
       window.setTimeout(() => this._stopSpeakerTest(), 3000);
     } catch (error) {
       this._status('🎙 Hold to talk', String(error?.message || error), false);
