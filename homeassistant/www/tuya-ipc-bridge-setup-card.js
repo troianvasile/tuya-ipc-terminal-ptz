@@ -1,4 +1,4 @@
-import "/local/little-elf-ptt-card.js?v=mic-clock-1";
+import "/local/little-elf-ptt-card.js?v=native-8k-1";
 
 class TuyaIpcBridgeSetupCard extends HTMLElement {
   setConfig(config) {

@@ -115,7 +115,10 @@ class LittleElfPttCard extends HTMLElement {
         throw new Error('This browser does not support AudioWorklet');
       }
       // Create/resume in the press gesture before permission and network awaits.
-      const context = new AudioContextClass();
+      // Request the target clock at the browser boundary. When supported,
+      // the browser resamples the physical microphone before the worklet,
+      // avoiding a lossy JavaScript 48/44.1 kHz -> 8 kHz conversion.
+      const context = new AudioContextClass({sampleRate: 8000});
       this._ctx = context;
       await context.resume();
       const mic = await navigator.mediaDevices.getUserMedia({
@@ -140,19 +143,11 @@ class LittleElfPttCard extends HTMLElement {
       if (!this._pressed || this._generation !== generation) return;
 
       const source = context.createMediaStreamSource(mic);
-      // The worklet reduces a 44.1/48 kHz microphone to 8 kHz. Remove
-      // frequencies above the 4 kHz Nyquist limit first, otherwise they fold
-      // into the speech band as audible aliasing on the camera speaker.
-      const speechFilter = context.createBiquadFilter();
-      speechFilter.type = 'lowpass';
-      speechFilter.frequency.value = 3400;
-      speechFilter.Q.value = 0.707;
       const processor = new AudioWorkletNode(context, 'little-elf-pcmu');
       this._node = processor;
       const mute = context.createGain();
       mute.gain.value = 0;
-      source.connect(speechFilter);
-      speechFilter.connect(processor);
+      source.connect(processor);
       processor.connect(mute);
       mute.connect(context.destination);
       processor.port.onmessage = event => {
@@ -176,7 +171,7 @@ class LittleElfPttCard extends HTMLElement {
           this._stop();
         }
       }, 20);
-      this._status('🔴 Talking — release to stop', 'Filtered 8 kHz PCMU · Sending microphone', true);
+      this._status('🔴 Talking — release to stop', `${context.sampleRate} Hz PCMU · Sending microphone`, true);
     } catch (error) {
       if (this._generation === generation) {
         this._status('🎙 Hold to talk', String(error?.message || error), false);
