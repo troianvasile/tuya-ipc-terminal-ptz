@@ -39,6 +39,8 @@ class RtspPcmuBackchannel:
         self._rx_task: asyncio.Task | None = None
         self._closed = False
         self._packets = 0
+        self._send_lock = asyncio.Lock()
+        self._next_packet_at: float | None = None
 
     async def start(self) -> None:
         try:
@@ -139,16 +141,29 @@ class RtspPcmuBackchannel:
             raise RtspError("Talkback session is closed")
         if not samples or len(samples) > 640:
             raise ValueError("Expected 1-640 PCMU samples")
-        packet = struct.pack(
-            "!BBHII", 0x80, self._payload_type & 0x7F,
-            self._sequence, self._timestamp, self._ssrc,
-        ) + samples
-        self.writer.write(b"$" + bytes([self.channel]) + struct.pack("!H", len(packet)) + packet)
-        self._sequence = (self._sequence + 1) & 0xFFFF
-        self._timestamp = (self._timestamp + len(samples)) & 0xFFFFFFFF
-        self._packets += 1
-        if self._packets % 5 == 0:
-            await asyncio.wait_for(self.writer.drain(), timeout=2)
+        async with self._send_lock:
+            loop = asyncio.get_running_loop()
+            now = loop.time()
+            if self._next_packet_at is None or now - self._next_packet_at > 0.25:
+                self._next_packet_at = now
+            if (delay := self._next_packet_at - now) > 0:
+                await asyncio.sleep(delay)
+            if self._closed or self.writer is None:
+                raise RtspError("Talkback session is closed")
+
+            packet = struct.pack(
+                "!BBHII", 0x80, self._payload_type & 0x7F,
+                self._sequence, self._timestamp, self._ssrc,
+            ) + samples
+            self.writer.write(
+                b"$" + bytes([self.channel]) + struct.pack("!H", len(packet)) + packet
+            )
+            self._sequence = (self._sequence + 1) & 0xFFFF
+            self._timestamp = (self._timestamp + len(samples)) & 0xFFFFFFFF
+            self._packets += 1
+            self._next_packet_at += len(samples) / 8000
+            if self._packets % 5 == 0:
+                await asyncio.wait_for(self.writer.drain(), timeout=2)
 
     async def close(self) -> None:
         if self._closed:
