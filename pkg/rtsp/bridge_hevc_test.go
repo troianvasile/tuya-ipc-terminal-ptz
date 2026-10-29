@@ -103,7 +103,7 @@ func TestHEVCBackchannelIsNegotiatedBeforeIncomingAudioTrack(t *testing.T) {
 func TestPCMUBackchannelIsTranscodedForPCMLCamera(t *testing.T) {
 	packet := &rtp.Packet{
 		Header:  rtp.Header{PayloadType: 0},
-		Payload: []byte{0xff, 0x7f},
+		Payload: []byte{0xff, 0x80},
 	}
 
 	normalizeBackchannelAudioPacket(packet, 101)
@@ -111,7 +111,7 @@ func TestPCMUBackchannelIsTranscodedForPCMLCamera(t *testing.T) {
 	if packet.PayloadType != 97 {
 		t.Fatalf("payload type = %d, want 97", packet.PayloadType)
 	}
-	want := []byte{0x00, 0x00, 0x00, 0x00}
+	want := []byte{0x00, 0x00, 0x7c, 0x7d}
 	if string(packet.Payload) != string(want) {
 		t.Fatalf("PCMU converted to %x, want %x", packet.Payload, want)
 	}

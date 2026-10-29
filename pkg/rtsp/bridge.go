@@ -419,21 +419,22 @@ func linearToMuLaw(sample int16) byte {
 }
 
 // normalizeBackchannelAudioPacket converts HA's PCMU microphone transport to
-// the audio codec advertised by the Tuya camera before WebRTC forwarding.
+// the Tuya camera's codec-101 PCML payload before WebRTC forwarding. Tuya
+// identifies this as L16 in SDP but uses little-endian sample bytes.
 func normalizeBackchannelAudioPacket(packet *rtp.Packet, codecType int) {
 	if packet == nil || codecType != 101 {
 		return
 	}
-	packet.Payload = muLawToPCM16BigEndian(packet.Payload)
+	packet.Payload = muLawToPCM16LittleEndian(packet.Payload)
 	packet.PayloadType = 97
 }
 
-func muLawToPCM16BigEndian(muLaw []byte) []byte {
+func muLawToPCM16LittleEndian(muLaw []byte) []byte {
 	pcm := make([]byte, len(muLaw)*2)
 	for index, value := range muLaw {
 		decoded := muLawToLinear(value)
-		pcm[index*2] = byte(uint16(decoded) >> 8)
-		pcm[index*2+1] = byte(decoded)
+		pcm[index*2] = byte(decoded)
+		pcm[index*2+1] = byte(uint16(decoded) >> 8)
 	}
 	return pcm
 }
