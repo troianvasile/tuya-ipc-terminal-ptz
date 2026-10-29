@@ -130,7 +130,7 @@ class LittleElfPttCard extends HTMLElement {
       }
       this._session = token;
 
-      await context.audioWorklet.addModule('/local/little-elf-talk-processor.js?v=0.1.0');
+      await context.audioWorklet.addModule('/local/little-elf-talk-processor.js?v=09450d4');
       if (!this._pressed || this._generation !== generation) return;
 
       const source = context.createMediaStreamSource(mic);
