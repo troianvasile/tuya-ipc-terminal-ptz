@@ -6,6 +6,17 @@
         "description": "Enter the private management URL of the Linux/Docker bridge. Home Assistant Container cannot reach a different host using localhost.",
         "data": {
           "url": "Management URL",
+          "browser_url": "Bridge manager URL for this browser (optional)",
+          "username": "Username",
+          "password": "Password"
+        }
+      },
+      "reconfigure": {
+        "title": "Update Tuya IPC Bridge",
+        "description": "Update the bridge address or credentials. The optional browser URL is the link shown in Home Assistant to open the bridge manager.",
+        "data": {
+          "url": "Management URL",
+          "browser_url": "Bridge manager URL for this browser (optional)",
           "username": "Username",
           "password": "Password"
         }
@@ -15,7 +26,8 @@
       "cannot_connect": "Connection or authentication failed. Check the address and credentials."
     },
     "abort": {
-      "already_configured": "This bridge is already configured."
+      "already_configured": "This bridge is already configured.",
+      "reconfigure_successful": "Tuya IPC Bridge updated."
     }
   }
 }

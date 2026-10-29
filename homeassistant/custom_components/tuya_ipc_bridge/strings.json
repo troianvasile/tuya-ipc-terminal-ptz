@@ -6,6 +6,17 @@
         "description": "Connect to the standalone bridge's private management address. On Home Assistant Container, 127.0.0.1 means the HA container, not the bridge host.",
         "data": {
           "url": "Bridge management URL",
+          "browser_url": "Bridge manager URL for this browser (optional)",
+          "username": "Bridge username",
+          "password": "Bridge password"
+        }
+      },
+      "reconfigure": {
+        "title": "Update Tuya IPC Bridge",
+        "description": "Update the bridge address or credentials. The optional browser URL is the link shown in Home Assistant to open the bridge manager.",
+        "data": {
+          "url": "Bridge management URL",
+          "browser_url": "Bridge manager URL for this browser (optional)",
           "username": "Bridge username",
           "password": "Bridge password"
         }
@@ -15,7 +26,8 @@
       "cannot_connect": "Cannot authenticate to or reach the bridge. Check its host address, port, firewall and credentials."
     },
     "abort": {
-      "already_configured": "This bridge is already configured."
+      "already_configured": "This bridge is already configured.",
+      "reconfigure_successful": "Tuya IPC Bridge updated."
     }
   }
 }

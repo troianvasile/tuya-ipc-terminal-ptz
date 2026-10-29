@@ -31,9 +31,14 @@ management API. It does not automatically start/install the Docker service.
    navigate to **Settings → Devices & services → Add integration → Tuya IPC
    Bridge**. Enter the management URL and the username/password used in the
    Docker `.env`. Enter a URL reachable *from HA*, not from your browser.
-6. Two status entities are created: **RTSP status** and **Accounts**. Status is
+6. The integration automatically creates **RTSP status**, **Accounts**, and one
+   native camera entity per discovered bridge camera. Status and discovery are
    refreshed approximately every minute. Authentication data stays in HA config
    entry storage and must be treated as a secret.
+7. If HA and the browser reach the bridge through different addresses, fill
+   **Bridge manager URL for this browser** with the browser-reachable private
+   URL. HA uses it for the **Open bridge manager** link without exposing
+   credentials.
 
 ## Installation combinations
 
@@ -43,9 +48,9 @@ management API. It does not automatically start/install the Docker service.
 | Home Assistant OS | Bridge on external Linux host; no Supervisor add-on required |
 | HA Core | Bridge on same or separate host |
 
-Home Assistant still needs network connectivity to the RTSP listener for video
-and PTT. See [existing PTT install](README.md) for the separate microphone
-card and PCMU/8000 restrictions.
+Home Assistant still needs network connectivity to the RTSP listener for video,
+incoming camera audio and PTT. PTT requires a camera that advertises a
+PCMU/8000 RTSP backchannel.
 
 ## QR login and camera list inside Home Assistant (experimental)
 
@@ -70,8 +75,46 @@ services.** Installation starts there, but the management UI lives on a dashboar
    and discovered cameras through the HA backend. Choose region and email,
    select **Start QR login**, scan via Tuya Smart/Smart Life's built-in scanner.
    The QR image is relayed through HA; the bridge username/password remain
-   server-side. The management API also remains accessible to the standalone
-   SSH-tunnel UI.
+   server-side. The card also offers bounded PTZ direction buttons for each
+   discovered camera. It does not issue a PTZ action until an administrator
+   presses a button.
+
+## Push-to-talk card
+
+Register `/local/little-elf-ptt-card.js` as a JavaScript module resource, then
+add this manual card for any discovered camera:
+
+```yaml
+type: custom:little-elf-ptt-card
+entry_id: REPLACE_WITH_HA_CONFIG_ENTRY_ID
+camera_id: REPLACE_WITH_DISCOVERED_DEVICE_ID
+```
+
+This uses the dynamically discovered camera; no YAML `little_elf_talk` alias
+or separate PTT backend is required. PTT is administrator-only and requires
+browser microphone permission over HTTPS or localhost. It deliberately sends
+only PCMU/8000 microphone packets over the bridge's private RTSP backchannel.
+
+To update bridge credentials or the browser manager link, open the integration
+menu and choose **Reconfigure**; deleting and re-adding it is unnecessary.
+
+## Ready-to-go dashboard card
+
+For the normal self-install path, register just
+`/local/tuya-ipc-bridge-setup-card.js` as a JavaScript module resource and add:
+
+```yaml
+type: custom:tuya-ipc-bridge-setup-card
+```
+
+The card resolves the only configured bridge automatically. It renders every
+discovered native camera with an HA camera widget, hold-to-talk control,
+bounded PTZ directions and an **Open bridge manager** link. By default the
+widget uses still frames, which is reliable for HEVC-only cameras; set
+`live: true` when the camera/browser combination can play the generated HA
+stream and incoming audio. If multiple bridge entries are configured, set
+`entry_id` on the card explicitly. The linked manager page will still request
+its own bridge credentials; none are passed in the URL.
 
 **Important:** Hiding a dashboard from nonadmins is not an authorization
 boundary. The backend enforces `connection.user.is_admin` on every management
@@ -83,11 +126,11 @@ needs private networking or a restricted HTTPS reverse proxy.
 
 ## Current development stage
 
-The branch now includes a basic HA management dashboard for QR login and a
-read-only camera list. It is **not yet** an automatically discovered device
-management experience or a native Settings panel. Camera setup, PTT and PTZ
-still require their respective integration steps. Fresh-install validation,
-UI usability improvements and regression tests remain pending.
+The branch now includes automatic native camera discovery with RTSP
+video/incoming audio, optional browser PTT and admin-only PTZ controls through
+the same private bridge. The management experience remains a dashboard card,
+rather than a native Devices & services panel. Fresh-install and real-camera
+PTT/PTZ validation are still required before broader compatibility claims.
 
 ## Security and troubleshooting
 

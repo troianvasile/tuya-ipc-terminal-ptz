@@ -22,10 +22,13 @@ class LittleElfPttCard extends HTMLElement {
   }
 
   setConfig(config) {
-    if (!config.camera || typeof config.camera !== 'string') {
-      throw new Error('little-elf-ptt-card requires camera: <configured camera ID>');
+    const legacy = typeof config.camera === 'string';
+    const bridge = typeof config.entry_id === 'string' && typeof config.camera_id === 'string';
+    if (!legacy && !bridge) {
+      throw new Error('Set camera, or entry_id and camera_id for Tuya IPC Bridge discovery');
     }
     this._config = {...config};
+    this._bridge = bridge;
     this._render();
   }
   set hass(hass) { this._hass = hass; }
@@ -118,15 +121,11 @@ class LittleElfPttCard extends HTMLElement {
       }
       this._stream = mic;
 
-      const response = await this._hass.connection.sendMessagePromise({
-        type:'little_elf_talk/start', camera:this._config.camera,
-      });
+      const response = await this._hass.connection.sendMessagePromise(this._message('start'));
       const token = response?.session;
       if (!token) throw new Error('Talkback backend returned no session');
       if (!this._pressed || this._generation !== generation) {
-        this._hass.connection.sendMessagePromise({
-          type:'little_elf_talk/stop', session:token,
-        }).catch(() => {});
+        this._hass.connection.sendMessagePromise(this._message('stop', {session:token})).catch(() => {});
         return;
       }
       this._session = token;
@@ -148,9 +147,7 @@ class LittleElfPttCard extends HTMLElement {
         let binary = '';
         for (const byte of bytes) binary += String.fromCharCode(byte);
         try {
-          this._hass.connection.sendMessage({
-            type:'little_elf_talk/chunk', session:token, audio:btoa(binary),
-          });
+          this._hass.connection.sendMessage(this._message('chunk', {session:token, audio:btoa(binary)}));
         } catch (_) {
           this._stop();
         }
@@ -183,11 +180,25 @@ class LittleElfPttCard extends HTMLElement {
       this._ctx = null;
     }
     if (token && this._hass?.connection) {
-      this._hass.connection.sendMessagePromise({
-        type:'little_elf_talk/stop', session:token,
-      }).catch(() => {});
+      this._hass.connection.sendMessagePromise(this._message('stop', {session:token})).catch(() => {});
     }
     if (!keepError) this._status('🎙 Hold to talk', 'Microphone off · Hold to speak');
+  }
+
+  _message(action, data = {}) {
+    if (!this._bridge) {
+      return {
+        type:`little_elf_talk/${action}`,
+        ...(action === 'start' ? {camera:this._config.camera} : {}),
+        ...data,
+      };
+    }
+    const type = {start:'ptt_start', chunk:'ptt_chunk', stop:'ptt_stop'}[action];
+    return {
+      type:`tuya_ipc_bridge/${type}`,
+      ...(action === 'start' ? {entry_id:this._config.entry_id, camera_id:this._config.camera_id} : {}),
+      ...data,
+    };
   }
 }
 

@@ -23,6 +23,7 @@ import qrcode
 LOG = logging.getLogger("tuya-manager")
 DATA = Path("/data/.tuya-data")
 REGIONS = ("eu-central", "eu-east", "us-west", "us-east", "china", "india")
+DIRECTIONS = ("UP", "DOWN", "LEFT", "RIGHT", "UP_LEFT", "UP_RIGHT", "DOWN_LEFT", "DOWN_RIGHT")
 MAIL = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
 USERS = os.environ["WEB_USERNAME"]
 PASSWORD = os.environ["WEB_PASSWORD"]
@@ -258,6 +259,7 @@ class Handler(BaseHTTPRequestHandler):
             self.reply(200, json.dumps({
                 "service": "tuya-ipc-bridge",
                 "rtsp": running,
+                "rtsp_port": RTSP_PORT,
                 "account_count": len(accounts()),
                 "accounts": entries,
                 "last_check": checked,
@@ -306,6 +308,9 @@ class Handler(BaseHTTPRequestHandler):
             if parsed.netloc != self.headers.get("Host", "") or parsed.scheme not in ("http", "https"):
                 self.reply(403, '{"error":"cross-origin request denied"}')
                 return
+        if self.path == "/api/ptz/move":
+            self.ptz_move()
+            return
         if self.path != "/api/qr":
             self.reply(404, '{"error":"not found"}')
             return
@@ -332,6 +337,42 @@ class Handler(BaseHTTPRequestHandler):
             JOBS[key] = {"status": "starting", "payload": None, "created": time.time()}
         threading.Thread(target=do_qr, args=(key, region, email), daemon=True).start()
         self.reply(202, json.dumps({"id": key}))
+
+    def ptz_move(self):
+        """Run one bounded PTZ movement for a discovered camera only."""
+        try:
+            length = int(self.headers.get("Content-Length", "0"))
+            if length < 2 or length > 1024:
+                raise ValueError()
+            body = json.loads(self.rfile.read(length).decode())
+            camera = body["camera"]
+            direction = body["direction"]
+            duration_ms = body.get("duration_ms", 400)
+            if (
+                not isinstance(camera, str) or not isinstance(direction, str)
+                or direction not in DIRECTIONS or not isinstance(duration_ms, int)
+                or not 100 <= duration_ms <= 1500
+            ):
+                raise ValueError()
+            registry = json.loads((DATA / "cameras.json").read_text())
+            camera_ids = {
+                item.get("deviceId") for item in registry.get("cameras", [])
+                if isinstance(item, dict)
+            }
+            if camera not in camera_ids:
+                self.reply(404, '{"error":"unknown camera"}')
+                return
+            result = cli("ptz", "move", "--camera", camera, "--direction", direction,
+                         "--duration", f"{duration_ms}ms", timeout=20)
+            if result.returncode != 0:
+                LOG.warning("PTZ move failed for discovered camera")
+                self.reply(502, '{"error":"PTZ command failed"}')
+                return
+        except (OSError, ValueError, KeyError, TypeError, json.JSONDecodeError,
+                UnicodeDecodeError, subprocess.SubprocessError):
+            self.reply(400, '{"error":"invalid PTZ request"}')
+            return
+        self.reply(200, '{"ok":true}')
 
 
 if __name__ == "__main__":
