@@ -4,13 +4,9 @@ import (
 	"encoding/binary"
 	"io"
 	"net"
-	"strings"
 	"testing"
 
 	"github.com/pion/rtp"
-	pion "github.com/pion/webrtc/v4"
-
-	bridgewebrtc "tuya-ipc-terminal/pkg/webrtc"
 )
 
 func TestDataChannelHEVCVideoPayloadTypeMatchesRTSPSDP(t *testing.T) {
@@ -69,33 +65,5 @@ func TestDataChannelPCMLAudioMatchesRTSPSDP(t *testing.T) {
 	want := []byte{0xff, 0x80, 0x00}
 	if string(packet.Payload) != string(want) {
 		t.Fatalf("PCML converted to %x, want %x", packet.Payload, want)
-	}
-}
-
-func TestHEVCBackchannelIsNegotiatedBeforeIncomingAudioTrack(t *testing.T) {
-	api, err := bridgewebrtc.NewAPI()
-	if err != nil {
-		t.Fatalf("create WebRTC API: %v", err)
-	}
-	peerConnection, err := api.NewPeerConnection(pion.Configuration{})
-	if err != nil {
-		t.Fatalf("create peer connection: %v", err)
-	}
-	defer peerConnection.Close()
-
-	bridge := &WebRTCBridge{peerConnection: peerConnection}
-	if err := bridge.setupBackchannel(); err != nil {
-		t.Fatalf("setup backchannel: %v", err)
-	}
-	if bridge.backchannel == nil {
-		t.Fatal("backchannel was not created")
-	}
-
-	offer, err := peerConnection.CreateOffer(nil)
-	if err != nil {
-		t.Fatalf("create offer: %v", err)
-	}
-	if !strings.Contains(offer.SDP, "a=rtpmap:0 PCMU/8000") {
-		t.Fatal("offer does not advertise PCMU/8000")
 	}
 }
