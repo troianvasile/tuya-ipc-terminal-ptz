@@ -168,6 +168,12 @@ func RegisterDefaultCodecs(m *webrtc.MediaEngine) error {
 			},
 			PayloadType: 8,
 		},
+		{
+			RTPCodecCapability: webrtc.RTPCodecCapability{
+				MimeType: "audio/L16", ClockRate: 8000,
+			},
+			PayloadType: 97,
+		},
 	} {
 		if err := m.RegisterCodec(codec, webrtc.RTPCodecTypeAudio); err != nil {
 			return err

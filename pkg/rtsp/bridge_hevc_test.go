@@ -83,7 +83,7 @@ func TestHEVCBackchannelIsNegotiatedBeforeIncomingAudioTrack(t *testing.T) {
 	}
 	defer peerConnection.Close()
 
-	bridge := &WebRTCBridge{peerConnection: peerConnection}
+	bridge := &WebRTCBridge{peerConnection: peerConnection, audioCodecType: 101}
 	if err := bridge.setupBackchannel(); err != nil {
 		t.Fatalf("setup backchannel: %v", err)
 	}
@@ -95,7 +95,24 @@ func TestHEVCBackchannelIsNegotiatedBeforeIncomingAudioTrack(t *testing.T) {
 	if err != nil {
 		t.Fatalf("create offer: %v", err)
 	}
-	if !strings.Contains(offer.SDP, "a=rtpmap:0 PCMU/8000") {
-		t.Fatal("offer does not advertise PCMU/8000")
+	if !strings.Contains(offer.SDP, "a=rtpmap:97 L16/8000") {
+		t.Fatal("offer does not advertise L16/8000")
+	}
+}
+
+func TestPCMUBackchannelIsTranscodedForPCMLCamera(t *testing.T) {
+	packet := &rtp.Packet{
+		Header:  rtp.Header{PayloadType: 0},
+		Payload: []byte{0xff, 0x7f},
+	}
+
+	normalizeBackchannelAudioPacket(packet, 101)
+
+	if packet.PayloadType != 97 {
+		t.Fatalf("payload type = %d, want 97", packet.PayloadType)
+	}
+	want := []byte{0x00, 0x00, 0x00, 0x00}
+	if string(packet.Payload) != string(want) {
+		t.Fatalf("PCMU converted to %x, want %x", packet.Payload, want)
 	}
 }

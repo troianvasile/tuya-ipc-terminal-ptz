@@ -226,7 +226,9 @@ func (wb *WebRTCBridge) ForwardBackchannelAudioPacket(packet *rtp.Packet) {
 		return
 	}
 	if err := wb.talkback.forward(wb.cameraClient.SendSpeaker, func() error {
-		return wb.backchannel.WriteRTP(wb.backchannelClock.rewrite(packet, time.Now()))
+		outgoing := wb.backchannelClock.rewrite(packet, time.Now())
+		normalizeBackchannelAudioPacket(outgoing, wb.audioCodecType)
+		return wb.backchannel.WriteRTP(outgoing)
 	}); err != nil {
 		core.Logger.Warn().Err(err).Msg("Talkback: audio packet not forwarded")
 	}
@@ -416,6 +418,37 @@ func linearToMuLaw(sample int16) byte {
 	return ^byte(sign | exponent<<4 | mantissa)
 }
 
+// normalizeBackchannelAudioPacket converts HA's PCMU microphone transport to
+// the audio codec advertised by the Tuya camera before WebRTC forwarding.
+func normalizeBackchannelAudioPacket(packet *rtp.Packet, codecType int) {
+	if packet == nil || codecType != 101 {
+		return
+	}
+	packet.Payload = muLawToPCM16BigEndian(packet.Payload)
+	packet.PayloadType = 97
+}
+
+func muLawToPCM16BigEndian(muLaw []byte) []byte {
+	pcm := make([]byte, len(muLaw)*2)
+	for index, value := range muLaw {
+		decoded := muLawToLinear(value)
+		pcm[index*2] = byte(uint16(decoded) >> 8)
+		pcm[index*2+1] = byte(decoded)
+	}
+	return pcm
+}
+
+func muLawToLinear(value byte) int16 {
+	decoded := ^int(value)
+	sample := ((decoded & 0x0f) << 3) + 0x84
+	sample <<= (decoded >> 4) & 0x07
+	sample -= 0x84
+	if decoded&0x80 != 0 {
+		sample = -sample
+	}
+	return int16(sample)
+}
+
 func (wb *WebRTCBridge) setupMQTTCameraClient(webRTCConfig *tuya.WebRTCConfig) {
 	device := &tuya.Device{
 		DeviceId:   wb.camera.DeviceID,
@@ -490,8 +523,12 @@ func (wb *WebRTCBridge) setupBackchannel() error {
 		return nil
 	}
 
+	capability := pion.RTPCodecCapability{MimeType: pion.MimeTypePCMU, ClockRate: 8000}
+	if wb.audioCodecType == 101 {
+		capability.MimeType = "audio/L16"
+	}
 	backchannel, err := pion.NewTrackLocalStaticRTP(
-		pion.RTPCodecCapability{MimeType: pion.MimeTypePCMU, ClockRate: 8000},
+		capability,
 		"audio-backchannel", "pion",
 	)
 	if err != nil {
