@@ -138,11 +138,19 @@ class LittleElfPttCard extends HTMLElement {
       if (!this._pressed || this._generation !== generation) return;
 
       const source = context.createMediaStreamSource(mic);
+      // The worklet reduces a 44.1/48 kHz microphone to 8 kHz. Remove
+      // frequencies above the 4 kHz Nyquist limit first, otherwise they fold
+      // into the speech band as audible aliasing on the camera speaker.
+      const speechFilter = context.createBiquadFilter();
+      speechFilter.type = 'lowpass';
+      speechFilter.frequency.value = 3400;
+      speechFilter.Q.value = 0.707;
       const processor = new AudioWorkletNode(context, 'little-elf-pcmu');
       this._node = processor;
       const mute = context.createGain();
       mute.gain.value = 0;
-      source.connect(processor);
+      source.connect(speechFilter);
+      speechFilter.connect(processor);
       processor.connect(mute);
       mute.connect(context.destination);
       processor.port.onmessage = event => {
@@ -156,7 +164,7 @@ class LittleElfPttCard extends HTMLElement {
           this._stop();
         }
       };
-      this._status('🔴 Talking — release to stop', '8 kHz PCMU · Sending microphone', true);
+      this._status('🔴 Talking — release to stop', 'Filtered 8 kHz PCMU · Sending microphone', true);
     } catch (error) {
       if (this._generation === generation) {
         this._status('🎙 Hold to talk', String(error?.message || error), false);

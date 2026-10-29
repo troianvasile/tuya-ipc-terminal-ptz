@@ -1,4 +1,4 @@
-import "/local/little-elf-ptt-card.js?v=mic-baseline-1";
+import "/local/little-elf-ptt-card.js?v=mic-filter-2";
 
 class TuyaIpcBridgeSetupCard extends HTMLElement {
   setConfig(config) {
