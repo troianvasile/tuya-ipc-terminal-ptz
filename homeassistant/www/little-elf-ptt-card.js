@@ -17,6 +17,8 @@ class LittleElfPttCard extends HTMLElement {
     this._stream = null;
     this._ctx = null;
     this._node = null;
+    this._audioQueue = [];
+    this._sendTimer = null;
     this._testTimer = null;
     this._testSession = null;
     this._blur = () => this._stop();
@@ -158,12 +160,22 @@ class LittleElfPttCard extends HTMLElement {
         const bytes = new Uint8Array(event.data);
         let binary = '';
         for (const byte of bytes) binary += String.fromCharCode(byte);
+        // AudioWorklet callbacks are render-clock driven and can arrive in
+        // bursts after a busy browser frame. Send exactly one 20-ms frame per
+        // tick, matching the known-good speaker-tone path.
+        if (this._audioQueue.length >= 25) this._audioQueue.shift();
+        this._audioQueue.push(btoa(binary));
+      };
+      this._sendTimer = window.setInterval(() => {
+        if (!this._pressed || this._session !== token || !this._hass?.connection) return;
+        const audio = this._audioQueue.shift();
+        if (!audio) return;
         try {
-          this._hass.connection.sendMessage(this._message('chunk', {session:token, audio:btoa(binary)}));
+          this._hass.connection.sendMessage(this._message('chunk', {session:token, audio}));
         } catch (_) {
           this._stop();
         }
-      };
+      }, 20);
       this._status('🔴 Talking — release to stop', 'Filtered 8 kHz PCMU · Sending microphone', true);
     } catch (error) {
       if (this._generation === generation) {
@@ -230,6 +242,9 @@ class LittleElfPttCard extends HTMLElement {
     if (!this._pressed && !this._stream && !this._ctx && !this._session) return;
     this._pressed = false;
     this._stopSpeakerTest();
+    if (this._sendTimer) window.clearInterval(this._sendTimer);
+    this._sendTimer = null;
+    this._audioQueue = [];
     this._generation++;
     const token = this._session;
     this._session = null;
