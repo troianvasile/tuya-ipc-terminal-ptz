@@ -43,7 +43,7 @@ type WebRTCBridge struct {
 
 	// State
 	connected bool
-	stopped bool // prevent duplicate teardown, including failed starts
+	stopped   bool // prevent duplicate teardown, including failed starts
 	waiter    utils.Waiter
 	mutex     sync.RWMutex
 
@@ -52,10 +52,10 @@ type WebRTCBridge struct {
 	cancel context.CancelFunc
 
 	// RTP forwarding
-	videoTrack  *pion.TrackRemote
-	audioTrack  *pion.TrackRemote
-	backchannel *pion.TrackLocalStaticRTP
-	talkback talkbackController
+	videoTrack       *pion.TrackRemote
+	audioTrack       *pion.TrackRemote
+	backchannel      *pion.TrackLocalStaticRTP
+	talkback         talkbackController
 	backchannelClock talkbackRTPClock
 
 	// Callbacks
@@ -283,12 +283,7 @@ func (wb *WebRTCBridge) setupPeerConnection(webRTCConfig *tuya.WebRTCConfig) err
 					return
 				}
 
-				switch packet.SSRC {
-				case wb.rtpForwarder.videoSSRC:
-					wb.rtpForwarder.ForwardVideoPacket(packet)
-				case wb.rtpForwarder.audioSSRC:
-					wb.rtpForwarder.ForwardAudioPacket(packet)
-				}
+				wb.forwardDataChannelPacket(packet)
 			}
 		})
 
@@ -373,6 +368,18 @@ func (wb *WebRTCBridge) setupPeerConnection(webRTCConfig *tuya.WebRTCConfig) err
 	})
 
 	return nil
+}
+
+// forwardDataChannelPacket makes the camera's arbitrary HEVC payload type
+// match the type advertised by the RTSP SDP before forwarding it to clients.
+func (wb *WebRTCBridge) forwardDataChannelPacket(packet *rtp.Packet) {
+	switch packet.SSRC {
+	case wb.rtpForwarder.videoSSRC:
+		packet.PayloadType = 96
+		wb.rtpForwarder.ForwardVideoPacket(packet)
+	case wb.rtpForwarder.audioSSRC:
+		wb.rtpForwarder.ForwardAudioPacket(packet)
+	}
 }
 
 func (wb *WebRTCBridge) setupMQTTCameraClient(webRTCConfig *tuya.WebRTCConfig) {
