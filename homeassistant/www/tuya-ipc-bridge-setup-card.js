@@ -140,7 +140,9 @@ class TuyaIpcBridgeSetupCard extends HTMLElement {
   }
 }
 
-customElements.define("tuya-ipc-bridge-setup-card", TuyaIpcBridgeSetupCard);
+if (!customElements.get("tuya-ipc-bridge-setup-card")) {
+  customElements.define("tuya-ipc-bridge-setup-card", TuyaIpcBridgeSetupCard);
+}
 window.customCards = window.customCards || [];
 window.customCards.push({
   type: "tuya-ipc-bridge-setup-card",
