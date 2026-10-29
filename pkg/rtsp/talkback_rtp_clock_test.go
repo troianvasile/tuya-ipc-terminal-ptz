@@ -9,7 +9,7 @@ import (
 
 func pcmuPacket(sequence uint16, timestamp uint32, samples int) *rtp.Packet {
 	return &rtp.Packet{
-		Header: rtp.Header{SequenceNumber: sequence, Timestamp: timestamp, PayloadType: 0},
+		Header:  rtp.Header{SequenceNumber: sequence, Timestamp: timestamp, PayloadType: 0},
 		Payload: make([]byte, samples),
 	}
 }
@@ -48,6 +48,16 @@ func TestTalkbackRTPClockUsesPCMUFrameSize(t *testing.T) {
 	third := clock.rewrite(pcmuPacket(102, 1480, 160), start.Add(60*time.Millisecond))
 	if second.Timestamp != 1160 || third.Timestamp != 1480 {
 		t.Fatalf("wrong timestamp progression: %d %d", second.Timestamp, third.Timestamp)
+	}
+}
+
+func TestTalkbackRTPClockPacesOnePCMUFrame(t *testing.T) {
+	clock := new(talkbackRTPClock)
+	clock.pace(160)
+	started := time.Now()
+	clock.pace(160)
+	if elapsed := time.Since(started); elapsed < 15*time.Millisecond {
+		t.Fatalf("pacing elapsed %v, want approximately 20ms", elapsed)
 	}
 }
 

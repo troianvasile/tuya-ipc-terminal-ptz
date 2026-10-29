@@ -19,6 +19,25 @@ type talkbackRTPClock struct {
 	timestamp   uint32
 	lastAt      time.Time
 	lastSamples uint32
+	nextSendAt  time.Time
+}
+
+// pace waits until the camera's 8-kHz playout clock is ready for the next RTP
+// packet. Browser WebSocket delivery can bunch otherwise-valid 20-ms PCMU
+// frames together, which makes Tuya's small jitter buffer render speech badly.
+// The caller serializes access through talkbackController.
+func (c *talkbackRTPClock) pace(samples int) {
+	if samples <= 0 {
+		return
+	}
+	now := time.Now()
+	if c.nextSendAt.IsZero() || now.Sub(c.nextSendAt) > 250*time.Millisecond {
+		c.nextSendAt = now
+	}
+	if delay := time.Until(c.nextSendAt); delay > 0 {
+		time.Sleep(delay)
+	}
+	c.nextSendAt = c.nextSendAt.Add(time.Duration(samples) * time.Second / 8000)
 }
 
 func (c *talkbackRTPClock) rewrite(input *rtp.Packet, now time.Time) *rtp.Packet {

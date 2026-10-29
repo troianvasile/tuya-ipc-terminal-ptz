@@ -228,6 +228,7 @@ func (wb *WebRTCBridge) ForwardBackchannelAudioPacket(packet *rtp.Packet) {
 	}
 	var outgoing *rtp.Packet
 	if err := wb.talkback.forward(wb.cameraClient.SendSpeaker, func() error {
+		wb.backchannelClock.pace(len(packet.Payload))
 		outgoing = wb.backchannelClock.rewrite(packet, time.Now())
 		return wb.backchannel.WriteRTP(outgoing)
 	}); err != nil {
