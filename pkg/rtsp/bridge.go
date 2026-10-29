@@ -58,6 +58,7 @@ type WebRTCBridge struct {
 	backchannel     *pion.TrackLocalStaticRTP
 	backchannelPCMA bool
 	talkback        talkbackController
+	talkbackPacer   talkbackPacer
 	talkbackPackets uint64
 
 	// Callbacks
@@ -231,6 +232,7 @@ func (wb *WebRTCBridge) ForwardBackchannelAudioPacket(packet *rtp.Packet) {
 		outgoing = pcmuRTPToPCMA(packet)
 	}
 	if err := wb.talkback.forward(wb.cameraClient.SendSpeaker, func() error {
+		wb.talkbackPacer.pace(len(outgoing.Payload))
 		// Home Assistant's RTSP sender already emits contiguous PCMU/8000 RTP
 		// timestamps. Preserve that RTP clock verbatim; rewriting or delaying it
 		// here introduces a second clock between the microphone and camera.
