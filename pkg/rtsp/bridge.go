@@ -58,6 +58,7 @@ type WebRTCBridge struct {
 	backchannel      *pion.TrackLocalStaticRTP
 	talkback         talkbackController
 	backchannelClock talkbackRTPClock
+	talkbackPackets  uint64
 
 	// Callbacks
 	OnVideoPacket func(packet *rtp.Packet)
@@ -225,11 +226,24 @@ func (wb *WebRTCBridge) ForwardBackchannelAudioPacket(packet *rtp.Packet) {
 	if packet == nil || wb.backchannel == nil || wb.cameraClient == nil {
 		return
 	}
+	var outgoing *rtp.Packet
 	if err := wb.talkback.forward(wb.cameraClient.SendSpeaker, func() error {
-		outgoing := wb.backchannelClock.rewrite(packet, time.Now())
+		outgoing = wb.backchannelClock.rewrite(packet, time.Now())
 		return wb.backchannel.WriteRTP(outgoing)
 	}); err != nil {
 		core.Logger.Warn().Err(err).Msg("Talkback: audio packet not forwarded")
+		return
+	}
+	if outgoing != nil {
+		wb.talkbackPackets++
+		if wb.talkbackPackets%50 == 0 {
+			core.Logger.Info().Msgf(
+				"Talkback diagnostics: forwarded %d RTP packets; payload type %d, latest payload %d bytes",
+				wb.talkbackPackets,
+				outgoing.PayloadType,
+				len(outgoing.Payload),
+			)
+		}
 	}
 }
 

@@ -37,6 +37,8 @@ class TalkbackSession:
     start_message_id: int
     rtsp: RtspPcmuBackchannel
     last_audio: float
+    started_at: float
+    packet_count: int = 0
 
 
 def _state(hass: HomeAssistant) -> dict[str, Any]:
@@ -109,9 +111,10 @@ async def ws_start(hass: HomeAssistant, connection: Any, msg: dict) -> None:
     finally:
         state["starting"].discard(key)
     token = secrets.token_urlsafe(24)
+    started_at = time.monotonic()
     session = TalkbackSession(
         token, msg["entry_id"], msg["camera_id"], connection, msg["id"], rtsp,
-        time.monotonic(),
+        started_at, started_at,
     )
     state["sessions"][token] = session
 
@@ -149,6 +152,15 @@ async def ws_chunk(hass: HomeAssistant, connection: Any, msg: dict) -> None:
     try:
         await session.rtsp.write_pcmu(audio)
         session.last_audio = time.monotonic()
+        session.packet_count += 1
+        if session.packet_count % 50 == 0:
+            elapsed = session.last_audio - session.started_at
+            _LOGGER.info(
+                "Talkback diagnostics: accepted %d PCMU packets; latest packet is %d bytes over %.2f seconds",
+                session.packet_count,
+                len(audio),
+                elapsed,
+            )
     except (RtspError, OSError, asyncio.TimeoutError, ValueError):
         await _end_session(hass, session.token)
         connection.send_error(msg["id"], "unavailable", "RTSP backchannel disconnected")
