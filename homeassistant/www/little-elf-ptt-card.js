@@ -17,6 +17,8 @@ class LittleElfPttCard extends HTMLElement {
     this._stream = null;
     this._ctx = null;
     this._node = null;
+    this._testTimer = null;
+    this._testSession = null;
     this._blur = () => this._stop();
     this._visibility = () => { if (document.hidden) this._stop(); };
   }
@@ -62,6 +64,7 @@ class LittleElfPttCard extends HTMLElement {
           color:var(--secondary-text-color,#999); }
       </style>
       <button type="button" aria-pressed="false">🎙 Hold to talk</button>
+      <button class="test" type="button">🔊 Test speaker tone</button>
       <div class="hint" role="status" aria-live="polite">Microphone off · Hold to speak</div>`;
     this._button = this.shadowRoot.querySelector('button');
     this._hint = this.shadowRoot.querySelector('.hint');
@@ -84,6 +87,7 @@ class LittleElfPttCard extends HTMLElement {
         event.preventDefault(); this._stop();
       }
     });
+    this.shadowRoot.querySelector('.test').addEventListener('click', () => this._startSpeakerTest());
   }
 
   _status(label, detail, active=false) {
@@ -161,9 +165,63 @@ class LittleElfPttCard extends HTMLElement {
     }
   }
 
+  _toneFrame() {
+    const frame = new Uint8Array(160);
+    for (let index = 0; index < frame.length; index++) {
+      const sample = Math.sin(2 * Math.PI * 1000 * index / 8000) * 0.2;
+      frame[index] = LittleElfPttCard._encodePCMU(sample);
+    }
+    return frame;
+  }
+
+  static _encodePCMU(sample) {
+    let pcm = Math.max(-32768, Math.min(32767, Math.round(sample * 32767)));
+    const mask = pcm < 0 ? 0x7f : 0xff;
+    if (pcm < 0) pcm = -pcm;
+    pcm = Math.min(32635, pcm + 132);
+    let segment = 0, value = pcm >> 7;
+    while (value > 1 && segment < 7) { segment++; value >>= 1; }
+    return (((segment << 4) | ((pcm >> (segment + 3)) & 15)) ^ mask) & 255;
+  }
+
+  async _startSpeakerTest() {
+    if (this._pressed || this._testTimer || !this._hass?.connection) return;
+    try {
+      const response = await this._hass.connection.sendMessagePromise(this._message('start'));
+      const session = response?.session;
+      if (!session) throw new Error('Talkback backend returned no session');
+      this._testSession = session;
+      const frame = this._toneFrame();
+      let binary = '';
+      for (const byte of frame) binary += String.fromCharCode(byte);
+      const audio = btoa(binary);
+      const send = () => this._hass?.connection?.sendMessage(
+        this._message('chunk', {session, audio})
+      );
+      send();
+      this._status('🔊 Testing speaker…', 'Three-second 1 kHz PCMU reference tone', true);
+      this._testTimer = window.setInterval(send, 20);
+      window.setTimeout(() => this._stopSpeakerTest(), 3000);
+    } catch (error) {
+      this._status('🎙 Hold to talk', String(error?.message || error), false);
+    }
+  }
+
+  _stopSpeakerTest() {
+    if (this._testTimer) window.clearInterval(this._testTimer);
+    this._testTimer = null;
+    const session = this._testSession;
+    this._testSession = null;
+    if (session && this._hass?.connection) {
+      this._hass.connection.sendMessagePromise(this._message('stop', {session})).catch(() => {});
+    }
+    if (!this._pressed) this._status('🎙 Hold to talk', 'Microphone off · Hold to speak');
+  }
+
   _stop(keepError=false) {
     if (!this._pressed && !this._stream && !this._ctx && !this._session) return;
     this._pressed = false;
+    this._stopSpeakerTest();
     this._generation++;
     const token = this._session;
     this._session = null;
