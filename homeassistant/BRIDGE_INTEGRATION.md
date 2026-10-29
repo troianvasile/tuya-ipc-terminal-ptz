@@ -107,14 +107,17 @@ For the normal self-install path, register just
 type: custom:tuya-ipc-bridge-setup-card
 ```
 
-The card resolves the only configured bridge automatically. It renders every
-discovered native camera with an HA camera widget, hold-to-talk control,
-bounded PTZ directions and an **Open bridge manager** link. By default the
-widget uses still frames, which is reliable for HEVC-only cameras; set
-`live: true` when the camera/browser combination can play the generated HA
-stream and incoming audio. If multiple bridge entries are configured, set
-`entry_id` on the card explicitly. The linked manager page will still request
-its own bridge credentials; none are passed in the URL.
+The card resolves the only configured bridge automatically. Each card renders
+**one selected camera** with its own HA camera widget, hold-to-talk control,
+bounded PTZ directions and an **Open bridge manager** link. Its selector lets
+an administrator switch the displayed camera; add another card when you want
+two camera widgets visible at once. Pin a card to one discovered camera with
+`camera_id: YOUR_DEVICE_ID`. By default the widget uses still frames, which is
+reliable for HEVC-only cameras; set `live: true` when the camera/browser
+combination can play the generated HA stream and incoming audio. If multiple
+bridge entries are configured, set `entry_id` on the card explicitly. The
+linked manager page will still request its own bridge credentials; none are
+passed in the URL.
 
 **Important:** Hiding a dashboard from nonadmins is not an authorization
 boundary. The backend enforces `connection.user.is_admin` on every management
